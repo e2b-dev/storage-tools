@@ -110,10 +110,10 @@ class CleanupTests(unittest.TestCase):
     def test_rejects_a_negative_age(self) -> None:
         self.write(row("snapshot", "t1"))
 
-        code, output = self.run_main("--older-than-days", "-1", client=FakeClient())
+        code, output = self.run_main("--unused-for-days", "-1", client=FakeClient())
 
         self.assertEqual(code, 2)
-        self.assertIn("--older-than-days must be at least 0", output)
+        self.assertIn("--unused-for-days must be at least 0", output)
 
     def test_dry_run_calls_nothing(self) -> None:
         client = FakeClient()
@@ -143,7 +143,7 @@ class CleanupTests(unittest.TestCase):
         code, _ = self.run_main(
             "--type",
             "paused_sandbox",
-            "--older-than-days",
+            "--unused-for-days",
             "90",
             "--apply",
             client=client,

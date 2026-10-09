@@ -283,10 +283,17 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("inventory", type=Path)
     parser.add_argument("--type", dest="types", action="append", choices=TYPES)
     parser.add_argument(
-        "--older-than-days", type=float, help="only rows last used more than N days ago"
+        "--unused-for-days",
+        type=float,
+        help="only rows whose last use (last_used_at) is at least N days ago",
     )
     parser.add_argument("--limit", type=int, help="delete at most N rows in this run")
-    parser.add_argument("--concurrency", type=int, default=10)
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=20,
+        help="rows in progress at once, default 20",
+    )
     parser.add_argument(
         "--rate", type=float, default=100, help="API requests per second, default 100"
     )
@@ -307,18 +314,18 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
             answer = input("Types to delete (paused_sandbox snapshot) [both]: ")
             for kind in answer.split():
                 argv += ["--type", kind]
-        if args.older_than_days is None:
-            answer = input("Only rows last used more than N days ago [all]: ")
+        if args.unused_for_days is None:
+            answer = input("Only rows unused for N days or more [all]: ")
             if answer:
-                argv += ["--older-than-days", answer]
+                argv += ["--unused-for-days", answer]
         if args.limit is None:
             answer = input("Delete at most N rows [all]: ")
             if answer:
                 argv += ["--limit", answer]
         args = parser.parse_args(argv)
 
-    if args.older_than_days is not None and args.older_than_days < 0:
-        parser.error("--older-than-days must be at least 0")
+    if args.unused_for_days is not None and args.unused_for_days < 0:
+        parser.error("--unused-for-days must be at least 0")
     if args.limit is not None and args.limit < 1:
         parser.error("--limit must be at least 1")
     if args.concurrency < 1:
@@ -338,8 +345,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Skipping rows already finished in {results_path}.")
 
     cutoff = None
-    if args.older_than_days is not None:
-        cutoff = datetime.now(UTC) - timedelta(days=args.older_than_days)
+    if args.unused_for_days is not None:
+        cutoff = datetime.now(UTC) - timedelta(days=args.unused_for_days)
 
     def rows() -> Iterator[Row]:
         return rows_to_delete(args.inventory, types, cutoff, finished, args.limit)
