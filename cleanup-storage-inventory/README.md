@@ -11,7 +11,7 @@ each row, and what to check before you run it).
 export E2B_API_KEY=e2b_***    # the key of the team the inventory belongs to, or use .env.template
 
 uv run cleanup_storage_inventory.py inventory.csv                       # dry run
-uv run cleanup_storage_inventory.py inventory.csv --older-than-days 90 --apply
+uv run cleanup_storage_inventory.py inventory.csv --unused-for-days 90 --apply
 uv run cleanup_storage_inventory.py inventory.csv --apply --interactive --limit 20  # confirm each row, at most 20
 uv run cleanup_storage_inventory.py --help                              # all flags
 ```
