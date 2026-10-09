@@ -291,8 +291,8 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument(
         "--concurrency",
         type=int,
-        default=20,
-        help="rows in progress at once, default 20",
+        default=10,
+        help="rows in progress at once, default 10",
     )
     parser.add_argument(
         "--rate", type=float, default=100, help="API requests per second, default 100"
