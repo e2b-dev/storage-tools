@@ -29,9 +29,9 @@ class NoMetadata(argparse.Action):
 
 def parser_for_cli():
     parser = argparse.ArgumentParser(description=__doc__)
-    age = parser.add_mutually_exclusive_group()
-    age.add_argument('--unused-for-days', type=int, dest='days', default=90,
-                     help='select snapshots unused for more than N whole days (default 90)')
+    age = parser.add_mutually_exclusive_group(required=True)
+    age.add_argument('--unused-for-days', type=int, dest='days',
+                     help='select snapshots unused for more than N whole days')
     age.add_argument('--unused-for-hours', type=hours_as_days, dest='days', metavar='N',
                      help='select snapshots unused for more than N hours')
     parser.add_argument('--name', help='snapshot name, ID or tag; selects the whole resource, including every tag/build')

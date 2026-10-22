@@ -43,7 +43,8 @@ class Commands(unittest.TestCase):
                                 ('--unused-for-hours', '-1'), ('--unused-for-hours', 'nan'),
                                 ('--unused-for-hours', 'inf'),
                                 ('--rate', 'inf'), ('--rate', '0'), ('--limit', '0')]:
-                result = self.command(command, *extra, flag, value)
+                age = ['--unused-for-days', '3'] if command != 'cleanup-storage-inventory' and not flag.startswith('--unused-for-') else []
+                result = self.command(command, *extra, *age, flag, value)
                 self.assertEqual(result.returncode, 2, result.stderr)
 
     def test_age_units_cannot_be_combined(self):
@@ -53,6 +54,20 @@ class Commands(unittest.TestCase):
                 result = self.command(command, *extra, day_flag, '1', '--unused-for-hours', '6')
                 self.assertEqual(result.returncode, 2, result.stderr)
                 self.assertIn('not allowed with argument', result.stderr)
+
+    def test_live_commands_require_age_in_preview_and_apply(self):
+        for command in ['cleanup-paused-sandboxes', 'cleanup-unused-snapshots']:
+            for flags in [(), ('--apply',)]:
+                result = self.command(command, *flags)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn('required', result.stderr)
+                self.assertIn('--unused-for-hours', result.stderr)
+        result = subprocess.run(
+            ['bash', str(ROOT / 'scheduled-cleanup/cleanup_paused_sandboxes_cli.sh')],
+            env={**self.env, 'E2B_TOOLS_PYTHON': sys.executable},
+            text=True, capture_output=True, timeout=20)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn('required', result.stderr)
 
     def test_inventory_dry_run_filters_without_credentials_or_results(self):
         source = self.folder / 'inventory.csv'

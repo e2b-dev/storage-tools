@@ -42,7 +42,7 @@ uv run storage_tools.py cleanup-unused-snapshots --name my-snapshot --unused-for
 uv run storage_tools.py analyze-sandbox-reuse --since-days 30 --max-events 0 --windows 1,2,3,7
 ```
 
-Cleanup supports whole `--unused-for-days` or `--unused-for-hours`, plus `--rate`, `--concurrency`, and an optional `--limit`. Live cleanup defaults to 90 days; CSV cleanup has no age filter by default. Use `--metadata` for paused sandboxes and `--name` for snapshots.
+Cleanup supports whole `--unused-for-days` or `--unused-for-hours`, plus `--rate`, `--concurrency`, and an optional `--limit`. Live cleanup requires one of the age flags; CSV cleanup has no age filter by default. Use `--metadata` for paused sandboxes and `--name` for snapshots.
 
 Paused-sandbox age starts at its latest pause. Snapshot age uses recorded last use, with a two-minute retention buffer. Usage updates can be delayed or lost, and deletion checks can race with reuse. Read the [paused-sandbox](scheduled-cleanup/README.md) and [snapshot](scheduled-cleanup/SNAPSHOTS.md) safeguards before enabling a schedule.
 

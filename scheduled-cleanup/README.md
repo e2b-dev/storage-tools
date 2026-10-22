@@ -2,6 +2,7 @@
 
 Delete currently paused sandboxes by time since their latest pause or latest start/resume.
 The script streams ascending API pages and starts deleting before the full inventory is read.
+Supply either `--unused-for-days` (whole days) or `--unused-for-hours`; there is no default retention period.
 The default is a dry run. `--apply` deletes immediately and permanently without prompts.
 
 Both `cleanup_paused_sandboxes.py` and `cleanup_paused_sandboxes_cli.sh` use the same HTTP client.

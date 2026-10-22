@@ -200,6 +200,8 @@ def run_shell(backend, args):
 
 def test_args(backend, args):
     args = list(args)
+    if not any(flag in args for flag in ('--unused-for-days', '--unused-for-hours', '--days')):
+        args += ['--unused-for-days', '90']
     if not hasattr(backend, "work_temp"):
         backend.work_temp = tempfile.TemporaryDirectory()
     args += ["--lock-file", str(Path(backend.work_temp.name) / "run.lock")]
@@ -244,7 +246,7 @@ class CleanupSafety(unittest.TestCase):
             self.assertEqual(parser.parse_args(['--unused-for-hours', hours]).days, days)
         self.assertEqual(parser.parse_args(['--unused-for-days', '3']).days,
                          parser.parse_args(['--days', '3']).days)
-        self.assertEqual(parser.parse_args([]).days, 90)
+        self.assertEqual(parser.parse_args(['--unused-for-days', '90']).days, 90)
 
     def test_apply_deletes_sandbox_and_preserves_named_snapshots(self):
         def verify(b, p):

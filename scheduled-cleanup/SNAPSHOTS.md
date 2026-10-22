@@ -31,8 +31,8 @@ creation, update, or build timestamp used for selection).
 
 | Flag | Meaning |
 | --- | --- |
-| `--unused-for-days N` | Whole-day cutoff; default 90. |
-| `--unused-for-hours N` | Hour cutoff; use either hours or days. |
+| `--unused-for-days N` | Whole-day cutoff; required unless hours are supplied. |
+| `--unused-for-hours N` | Hour cutoff; required unless days are supplied. |
 | `--name NAME` | Select a snapshot by name or ID. Omit to scan the team. |
 | `--apply` | Delete matches. Without it, preview only. |
 | `--rate N` | Combined HTTP attempts per second, including retries; default 20. |
