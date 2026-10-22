@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 import sys
 
 from cleanup_journal import Journal, run_lock
-from sandbox_backend import AuthorizationError, BackendError, Missing, RetryLaterError, backend, metadata_arg, nonnegative, positive, timestamp
+from sandbox_backend import AuthorizationError, BackendError, Missing, RetryLaterError, SelectionChanged, backend, metadata_arg, nonnegative, positive, timestamp
 
 
 def parser_for_cli():
@@ -63,12 +63,21 @@ def run_sandboxes(args, api, cutoff):
 
     def delete(info):
         sid = info.sandbox_id
+
+        def recheck():
+            current = api.get_info(sid)
+            if not is_eligible(current, args, cutoff):
+                raise SelectionChanged('state, age or metadata changed')
+
         try:
             if args.recheck:
-                info = api.get_info(sid)
-                if not is_eligible(info, args, cutoff):
-                    return 'skipped', sid, 'state, age or metadata changed'
-            return ('deleted' if api.kill(sid) else 'skipped'), sid, ''
+                recheck()
+                deleted = api.kill(sid, before_retry=recheck)
+            else:
+                deleted = api.kill(sid)
+            return ('deleted' if deleted else 'skipped'), sid, ''
+        except SelectionChanged as error:
+            return 'skipped', sid, str(error)
         except Missing:
             return 'skipped', sid, 'already gone'
         except (AuthorizationError, RetryLaterError):
@@ -193,7 +202,13 @@ def run(args, api, cutoff):
                             del pending[sid]
                             journal.save()
                         continue
-                    if latest is not None and api.kill(sid):
+                    def recheck_parent():
+                        retry_current = api.get_info(sid)
+                        if (not eligible(retry_current) or retry_current.started_at != current.started_at
+                                or retry_current.end_at != current.end_at):
+                            raise SelectionChanged('state, metadata, or pause changed during delete retry')
+
+                    if latest is not None and api.kill(sid, before_retry=recheck_parent):
                         deleted += 1
                         print(f'Deleted paused sandbox {sid}')
                     else:
@@ -223,6 +238,12 @@ def run(args, api, cutoff):
                     if not record['snapshots']:
                         del pending[sid]
                         journal.save()
+            except SelectionChanged as error:
+                skipped += 1
+                print(f'Skipped {sid}: {error}')
+                if record:
+                    del pending[sid]
+                    journal.save()
             except (AuthorizationError, RetryLaterError):
                 raise
             except BackendError as error:

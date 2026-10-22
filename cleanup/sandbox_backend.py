@@ -13,6 +13,10 @@ import httpx
 from request_control import AuthorizationError, BackendError, Missing, RequestControl, RetryLaterError
 
 
+class SelectionChanged(BackendError):
+    """A fresh lookup no longer permits the pending destructive request."""
+
+
 def timestamp(value):
     if not isinstance(value, (str, datetime)):
         raise ValueError('timestamps must be ISO strings or datetime values')
@@ -140,9 +144,10 @@ class APIBackend:
         except (ValueError, TypeError) as error:
             raise BackendError('invalid sandbox response') from error
 
-    def kill(self, sid):
+    def kill(self, sid, *, before_retry=None):
         try:
-            self.control.request(self.client, 'DELETE', f'/sandboxes/{identifier(sid)}')
+            self.control.request(self.client, 'DELETE', f'/sandboxes/{identifier(sid)}',
+                                 before_retry=before_retry)
             return True
         except Missing:
             return False

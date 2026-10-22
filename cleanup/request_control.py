@@ -73,8 +73,12 @@ class RequestControl:
             self.next_request = max(self.next_request, self.clock() + delay)
             self.retried += 1
 
-    def request(self, client, method, path, **kwargs):
+    def request(self, client, method, path, *, before_retry=None, **kwargs):
         for attempt in range(self.retries + 1):
+            if attempt and before_retry is not None:
+                # The guard's GET shares this controller, so it waits out the
+                # cooldown before reading state; the DELETE takes its own slot.
+                before_retry()
             self.wait()
             try:
                 response = client.request(method, path, **kwargs)

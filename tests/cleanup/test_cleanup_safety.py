@@ -108,7 +108,7 @@ class FakeAPI:
         from sandbox_backend import normalize
         return normalize(self.call('info', sid))
 
-    def kill(self, sid):
+    def kill(self, sid, *, before_retry=None):
         return self.call('kill', sid)
 
     def snapshots(self, sid):

@@ -85,9 +85,10 @@ exec /opt/storage-tools/.venv/bin/python \
   --unused-for-days 3 --apply --recheck --rate 15 --limit 10000
 ```
 
-`--recheck` re-reads each sandbox immediately before its delete and skips it if it has been
-resumed since it was listed. It costs one extra GET per deletion. It narrows the race window but cannot prevent a resume
-between that lookup and deletion; coordinate resumes in the application if needed.
+`--recheck` re-reads each sandbox before the first delete attempt and again after backoff
+before each retry. It skips a sandbox that no longer matches. Each check uses one GET.
+A resume can still occur between the final check and deletion; coordinate resumes in the
+application if needed.
 
 Store `E2B_API_KEY=your_team_key` and any `E2B_DOMAIN` setting in `cleanup.env`.
 Restrict it with `chmod 600 /opt/storage-tools/cleanup.env`, test the wrapper manually, and schedule:
@@ -150,7 +151,9 @@ the journal until no entries remain. Dry runs do not create journals. Existing p
 entries are loaded into memory; the normal sandbox-only path needs no recovery inventory.
 
 Snapshots created after enumeration and snapshots whose parents were already gone before the
-run are not discovered. Snapshot retention is a separate policy from sandbox retention.
+run are not discovered. Snapshot retention is a separate policy from sandbox retention. Capturing again under the
+same name updates the same snapshot resource; deleting it also removes that newer capture.
+Keep `--delete-snapshots` off for names shared or reused by other workloads.
 
 ## Verification
 
@@ -164,6 +167,17 @@ Run offline tests from the repository root:
 both entry points with one-resource pages, and deletes only its own fixtures. It validates age
 selection, a recent resume, dry runs, bounded apply, named-snapshot cleanup and running-sandbox
 preservation. It is an opt-in live test, not a million-resource benchmark.
+
+For cron safety checks against real fixtures, run:
+
+```bash
+.venv/bin/python tests/cleanup/validate_cron_e2e.py
+```
+
+This runs the cron wrapper with an empty environment, checks concurrent workers, overlapping
+jobs, interruption, retries, resume races, and snapshot recovery. A local proxy restricts
+requests to the test's fixtures and injects failures; the resources and permitted API calls
+are real. Evidence stays in gitignored `verification/`, and all fixtures are cleaned up.
 
 For a larger live streaming check, run:
 
