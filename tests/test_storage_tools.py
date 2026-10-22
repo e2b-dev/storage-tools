@@ -6,6 +6,8 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import shlex
+import shutil
 import sys
 import tempfile
 import threading
@@ -59,6 +61,19 @@ class Commands(unittest.TestCase):
         result = self.command('analyze-sandbox-reuse', '--events-file', str(source), '--skip-listing', '--all')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('Events used       : 0', result.stdout)
+
+    def test_standalone_cleanup_quickstart_uses_packaged_files(self):
+        shutil.copytree(ROOT / 'cleanup', self.folder / 'cleanup', ignore=shutil.ignore_patterns('__pycache__'))
+        for name in ['requirements.txt', 'LICENSE']:
+            shutil.copy(ROOT / name, self.folder / name)
+        quickstart = (self.folder / 'cleanup/README.md').read_text().split('## Request budgets')[0]
+        commands = [shlex.split(line) for line in quickstart.splitlines()
+                    if line.startswith('.venv/bin/python ')]
+        self.assertTrue(commands)
+        for command in commands:
+            result = subprocess.run([sys.executable, *command[1:], '--help'], cwd=self.folder,
+                                    env=self.env, text=True, capture_output=True, timeout=20)
+            self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_recurring_dry_run_apply_and_legacy_alias(self):
         requests = []

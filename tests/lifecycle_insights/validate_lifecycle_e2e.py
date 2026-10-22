@@ -85,7 +85,7 @@ def main():
         print(f"  events: {types}")
 
         outputs = {}
-        for name, cmd in [("python", [sys.executable, str(SCRIPTS / "analyze_sandbox_reuse.py")]),
+        for name, cmd in [("python", [sys.executable, str(ROOT / "storage_tools.py"), "analyze-sandbox-reuse"]),
                           ("shell", ["bash", str(SCRIPTS / "analyze_sandbox_reuse_cli.sh")])]:
             proc = subprocess.run(cmd + ["--metadata", meta_arg, "--windows", f"{ONE_MIN_DAYS},{TEN_MIN_DAYS}"],
                                   capture_output=True, text=True, timeout=300)
@@ -104,9 +104,9 @@ def main():
                   f"{name}: returned after a 1-minute window: 1 of 1")
             check(row(out, "OBSERVED SANDBOX RETURNS AFTER N", TEN_MIN) == [[TEN_MIN], ["0"], ["0.0%"], ["0.0%"], ["1"], ["1"]],
                   f"{name}: no return after a 10-minute window")
-            check(row(out, "OBSERVED PAUSE / RESUME TIMING", ONE_MIN)[5] == ["1", "of", "1", "100.0%"],
+            check(row(out, "RESUMES THAT CAME AFTER N DAYS IDLE", ONE_MIN)[1] == ["1", "of", "1", "100.0%"],
                   f"{name}: the one resume happened after the 1-minute window")
-            check(row(out, "OBSERVED PAUSE / RESUME TIMING", TEN_MIN)[5] == ["0", "of", "1", "0.0%"],
+            check(row(out, "RESUMES THAT CAME AFTER N DAYS IDLE", TEN_MIN)[1] == ["0", "of", "1", "0.0%"],
                   f"{name}: no resume happened after the 10-minute window")
         strip = lambda s: re.sub(r"\s+", " ", "\n".join(l for l in s.splitlines() if "History" not in l and "Events used" not in l and "Note:" not in l))
         check(strip(outputs["python"]) == strip(outputs["shell"]), "python and shell reports identical")
