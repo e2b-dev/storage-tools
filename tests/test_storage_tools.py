@@ -30,11 +30,12 @@ class Commands(unittest.TestCase):
 
     def test_help_and_invalid_commands_preserve_exit_codes(self):
         for args in [('--help',), ('cleanup-storage-inventory', '--help'),
-                     ('cleanup-paused-sandboxes', '--help'), ('analyze-sandbox-reuse', '--help')]:
+                     ('cleanup-paused-sandboxes', '--help'), ('cleanup-unused-snapshots', '--help'),
+                     ('analyze-sandbox-reuse', '--help')]:
             result = self.command(*args)
             self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.command('missing').returncode, 2)
-        for command in ['cleanup-storage-inventory', 'cleanup-paused-sandboxes']:
+        for command in ['cleanup-storage-inventory', 'cleanup-paused-sandboxes', 'cleanup-unused-snapshots']:
             extra = ['inventory.csv'] if command == 'cleanup-storage-inventory' else []
             for flag, value in [('--unused-for-days', '-1'), ('--unused-for-days', 'nan'),
                                 ('--unused-for-days', '0.5'), ('--unused-for-days', '1.5'),
@@ -46,9 +47,9 @@ class Commands(unittest.TestCase):
                 self.assertEqual(result.returncode, 2, result.stderr)
 
     def test_age_units_cannot_be_combined(self):
-        for command in ['cleanup-storage-inventory', 'cleanup-paused-sandboxes']:
+        for command in ['cleanup-storage-inventory', 'cleanup-paused-sandboxes', 'cleanup-unused-snapshots']:
             extra = ['inventory.csv'] if command == 'cleanup-storage-inventory' else []
-            for day_flag in (['--unused-for-days', '--days'] if not extra else ['--unused-for-days']):
+            for day_flag in (['--unused-for-days', '--days'] if command == 'cleanup-paused-sandboxes' else ['--unused-for-days']):
                 result = self.command(command, *extra, day_flag, '1', '--unused-for-hours', '6')
                 self.assertEqual(result.returncode, 2, result.stderr)
                 self.assertIn('not allowed with argument', result.stderr)

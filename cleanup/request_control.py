@@ -13,6 +13,14 @@ class BackendError(RuntimeError):
     pass
 
 
+class HTTPError(BackendError):
+    def __init__(self, message, status_code, *, method=None, path=None):
+        super().__init__(message)
+        self.status_code = status_code
+        self.method = method
+        self.path = path
+
+
 class Missing(BackendError):
     pass
 
@@ -102,6 +110,7 @@ class RequestControl:
                     response.close()
                     continue
             if response.status_code >= 300:
-                raise BackendError(f'{method} {path}: HTTP {response.status_code} after {attempt + 1} attempts')
+                raise HTTPError(f'{method} {path}: HTTP {response.status_code} after {attempt + 1} attempts',
+                                response.status_code, method=method, path=path)
             return response
         raise AssertionError('unreachable')

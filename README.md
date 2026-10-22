@@ -1,10 +1,10 @@
 # E2B storage tools
 
-Manage E2B sandbox storage from one repository: clean up a downloaded inventory, enforce
-recurring retention on paused sandboxes, and analyze reuse before choosing a retention period.
+Clean up paused sandboxes and unused snapshots, process a downloaded inventory, and analyze
+sandbox reuse before choosing a retention period.
 Cleanup commands preview by default and require `--apply` for permanent deletion.
 
-**[Storage management guide](https://docs.e2b.dev/sandbox/storage-management)**
+**[Bulk cleanup guide](https://docs.e2b.dev/sandbox/cleanup-storage-inventory)** · **[Scheduled cleanup guide](https://docs.e2b.dev/sandbox/storage-management)**
 
 ## Install
 
@@ -27,7 +27,7 @@ credentials in the wrapper described in the [recurring cleanup guide](cleanup/RE
 
 ## Commands
 
-Run all three tools through `storage_tools.py`. Each command accepts `--help`.
+Run all tools through `storage_tools.py`. Each command accepts `--help`.
 
 ```bash
 # Preview resources in a dashboard inventory that were last used more than 90 days ago.
@@ -36,6 +36,9 @@ uv run storage_tools.py cleanup-storage-inventory inventory.csv --unused-for-day
 # Preview live sandboxes that have been paused for more than 3 days.
 uv run storage_tools.py cleanup-paused-sandboxes --unused-for-days 3 --metadata env=dev
 
+# Preview a snapshot last used more than 30 days ago.
+uv run storage_tools.py cleanup-unused-snapshots --name my-snapshot --unused-for-days 30
+
 # Analyze reuse before selecting a retention window; read-only.
 uv run storage_tools.py analyze-sandbox-reuse --since-days 30 --max-events 0 --windows 1,2,3,7
 ```
@@ -43,46 +46,63 @@ uv run storage_tools.py analyze-sandbox-reuse --since-days 30 --max-events 0 --w
 | Command | Source and purpose | Detailed guide |
 | --- | --- | --- |
 | `cleanup-storage-inventory` | Dashboard CSV; bulk cleanup of paused sandboxes and snapshots, with per-row results and resume support | [Inventory cleanup](cleanup-storage-inventory/README.md) |
-| `cleanup-paused-sandboxes` | Live API listing; streaming retention cleanup suitable for cron, with optional named-snapshot recovery | [Recurring cleanup](cleanup/README.md) |
+| `cleanup-unused-snapshots` | Live snapshot listing; cleanup by recorded last use, with identity and usage rechecks | [Snapshot cleanup](cleanup/SNAPSHOTS.md) |
+| `cleanup-paused-sandboxes` | Live API listing; streaming retention cleanup of paused sandboxes, suitable for cron | [Recurring cleanup](cleanup/README.md) |
 | `analyze-sandbox-reuse` | Lifecycle events and paused listing; estimate how a retention window affects observed resumes | [Lifecycle insights](lifecycle_insights/README.md) |
+
+### Resource types and age
+
+| Resource | Age starts at | Selection |
+| --- | --- | --- |
+| Paused sandbox | Its most recent pause | `cleanup-paused-sandboxes`, or inventory `--type paused_sandbox` |
+| Snapshot | Its last recorded use (`lastSpawnedAt`); this also includes resumes of derived sandboxes | `cleanup-unused-snapshots` |
+
+Snapshots do not resume. A sandbox's pause age does not establish its snapshots' last use.
+Inventory cleanup selects both types unless you pass `--type`.
 
 ### Shared flags
 
-Both cleanup commands use these names and meanings:
+The live cleanup commands share these flags:
 
 | Flag | Meaning |
 | --- | --- |
-| `--unused-for-days N` | Select resources last used **more than** N days ago; N must be a whole number. Inventory uses CSV `last_used_at`; recurring cleanup uses the latest pause by default. |
+| `--unused-for-days N` | Select resources last used **more than** N days ago; N must be a whole number. Paused sandboxes use their latest pause; snapshots use recorded last use. |
 | `--unused-for-hours N` | Select resources last used **more than** N hours ago. Use either hours or days. |
 | `--apply` | Permanently delete selected resources. Without it, preview only. |
 | `--rate N` | API request budget per second, default **20**. |
 | `--concurrency N` | Resources in progress at once, default **10**. |
 | `--limit N` | Bound selected resources per invocation; omitted means no cap. |
 
-Inventory cleanup has no age filter unless supplied. Recurring cleanup defaults to 90 days.
-In recurring cleanup, `--age-from started` explicitly switches the threshold to the latest
-start/resume, and `--limit` counts parent sandboxes, not their optional named snapshots.
-Inventory cleanup supports `--type` and `--interactive`; recurring cleanup supports `--metadata`,
-`--recheck`, and `--delete-snapshots`. Lifecycle analysis also uses `--metadata`; its `--since-days`
+Live cleanup defaults to 90 days. Inventory cleanup has no age filter unless supplied.
+In paused-sandbox cleanup, `--age-from started` switches the threshold to the latest
+start/resume. Both live commands count matching candidates toward `--limit`, including skipped and failed candidates.
+Inventory cleanup supports `--type` and `--interactive`. Paused-sandbox cleanup supports `--metadata`.
+Snapshot cleanup supports `--name` instead: the snapshot API exposes no workload metadata.
+Both live commands share `--retries`, `--page-size`, and `--lock-file`; snapshot rechecks are always enabled. Lifecycle analysis also uses `--metadata`; its `--since-days`
 limits event history, a different concept from a deletion threshold.
 
-The recurring tool spaces every HTTP attempt, including retries, within its budget and bounds
+The live tools space every HTTP attempt, including retries, within their budget and bound
 transient retries. The inventory tool uses the SDK and queues rate-limited rows again; its rate
 limiter allows bursts. Budget for other applications and concurrent jobs separately.
 
-Both tools can race with a concurrent resume: the API has no atomic paused-only delete.
-Inventory cleanup always checks current sandbox state; recurring cleanup adds that lookup with
+Paused-sandbox deletion can race with a concurrent resume: the API has no atomic paused-only delete.
+Inventory cleanup always checks current sandbox state; paused-sandbox cleanup adds that lookup with
 `--recheck`. Coordinate resumes in your application when this race is unacceptable.
+
+Snapshot cleanup adds two minutes to the requested retention age, without waiting or extra
+API requests. Usage updates can still be delayed or lost. See [snapshot cleanup](cleanup/SNAPSHOTS.md#scheduling-and-failure-handling)
+before scheduling deletion.
 
 ### Existing entry points and recovery state
 
-The original Python and shell scripts remain usable. Recurring cleanup accepts `--days` as an
-alias for `--unused-for-days`, with the same selection and recovery-journal identity.
-When moving an installation, copy its pending `.cleanup-journal-*.json` files into the new
-`cleanup/` folder, or pass the original absolute `--journal` path. Preserve inventory
-`*.results.csv` files alongside their CSVs. Keep the original credentials, endpoint and
-selection when retrying named-snapshot recovery. Stop the old scheduled job before enabling
-the new one, and share `--lock-file` if multiple installations must coordinate on one host.
+The original Python and shell scripts remain usable. Paused-sandbox cleanup accepts `--days` as an
+alias for `--unused-for-days`. It deletes paused sandboxes only; snapshot deletion and its
+`--journal` / `--retry-pending` flags are no longer supported. Existing journal files are left
+untouched. Do not replay their snapshot IDs using parent age; evaluate snapshots independently
+with the snapshot command and their own recorded-use timestamps.
+
+Preserve inventory `*.results.csv` files alongside their CSVs. Stop the old scheduled job before
+enabling its replacement, and share `--lock-file` when coordinating installations on one host.
 
 The cleanup shell entry point uses the same Python HTTP client. The lifecycle shell entry
 point is an equivalent read-only implementation that additionally needs `curl`, `jq`, and

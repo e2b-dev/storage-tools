@@ -59,13 +59,6 @@ def identifier(value):
     return value
 
 
-def snapshot_identifier(value):
-    # The API reports a named snapshot as "namespace/alias:tag" and an unnamed one as "templateID:tag".
-    if not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)?(?::[A-Za-z0-9_.-]+)?', value):
-        raise BackendError(f'invalid snapshot ID: {value!r}')
-    return value
-
-
 def normalize(raw):
     try:
         sid = raw.get('sandboxID') or raw.get('sandboxId')
@@ -148,22 +141,6 @@ class APIBackend:
         try:
             self.control.request(self.client, 'DELETE', f'/sandboxes/{identifier(sid)}',
                                  before_retry=before_retry)
-            return True
-        except Missing:
-            return False
-
-    def snapshots(self, sid):
-        ids = []
-        for page in self.pages('/snapshots', {'sandboxID': identifier(sid)}):
-            for item in page:
-                if not isinstance(item, dict):
-                    raise BackendError('invalid snapshot listing response')
-                ids.append(snapshot_identifier(item.get('snapshotID') or item.get('snapshotId')))
-        return list(dict.fromkeys(ids))
-
-    def delete_snapshot(self, sid):
-        try:
-            self.control.request(self.client, 'DELETE', f'/templates/{quote(snapshot_identifier(sid), safe="")}')
             return True
         except Missing:
             return False

@@ -144,9 +144,10 @@ def ask_each_row() -> Callable[[Row], bool]:
         nonlocal delete_all
         while not delete_all:
             # input() blocks the event loop; interactive runs one row at a time anyway.
+            age_label = "last paused" if row.kind == "paused_sandbox" else "last used to create a sandbox"
             answer = input(
                 f"Delete {row.kind} {row.id} ({row.size_gib:,.2f} GiB, "
-                f"last used {row.last_used_at:%Y-%m-%d})? [y/n/a/q] "
+                f"{age_label} {row.last_used_at:%Y-%m-%d})? [y/n/a/q] "
             ).strip()
             if answer == "y":
                 return True
@@ -280,10 +281,12 @@ async def delete_rows(
 
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Delete the resources listed in an E2B storage inventory CSV."
+        description="Delete paused sandboxes and snapshots from an E2B storage inventory CSV.",
+        epilog="Age uses last_used_at: last pause for sandboxes; last sandbox creation from a snapshot. The CSV is not a live usage check."
     )
     parser.add_argument("inventory", type=Path)
-    parser.add_argument("--type", dest="types", action="append", choices=TYPES)
+    parser.add_argument("--type", dest="types", action="append", choices=TYPES,
+                        help="resource type to delete; repeat to select both (default: both)")
     age = parser.add_mutually_exclusive_group()
     age.add_argument(
         "--unused-for-days",
