@@ -52,7 +52,8 @@ Both cleanup commands use these names and meanings:
 
 | Flag | Meaning |
 | --- | --- |
-| `--unused-for-days N` | Select resources last used **more than** N days ago; fractions allowed. Inventory uses CSV `last_used_at`; recurring cleanup uses the latest pause by default. |
+| `--unused-for-days N` | Select resources last used **more than** N days ago. Inventory uses CSV `last_used_at`; recurring cleanup uses the latest pause by default. |
+| `--unused-for-hours N` | Select resources last used **more than** N hours ago. Use either hours or days. |
 | `--apply` | Permanently delete selected resources. Without it, preview only. |
 | `--rate N` | API request budget per second, default **20**. |
 | `--concurrency N` | Resources in progress at once, default **10**. |

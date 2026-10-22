@@ -154,6 +154,19 @@ class CleanupTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(self.outcomes(), {"old": "deleted"})
 
+    def test_hours_filter_and_interactive_does_not_prompt_for_days(self) -> None:
+        now = datetime.now(UTC)
+        client = FakeClient(snapshots={"old": True, "recent": True})
+        self.write(row("snapshot", "old", now - timedelta(minutes=90)),
+                   row("snapshot", "recent", now - timedelta(minutes=30)))
+        with mock.patch("builtins.input", side_effect=["y"]) as prompt:
+            code, output = self.run_main("--unused-for-hours", "1", "--type", "snapshot",
+                                         "--limit", "10", "--interactive", "--apply", client=client)
+        self.assertEqual(code, 0, output)
+        self.assertEqual(prompt.call_count, 1)
+        self.assertEqual(self.outcomes(), {"old": "deleted"})
+        self.assertEqual(client.calls, [("delete_snapshot", "old")])
+
     def test_maps_each_case_to_an_outcome_and_kills_before_deleting_snapshots(
         self,
     ) -> None:

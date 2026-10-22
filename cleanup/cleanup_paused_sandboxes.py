@@ -17,7 +17,9 @@ from sandbox_backend import AuthorizationError, BackendError, Missing, RetryLate
 
 def parser_for_cli():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--unused-for-days', '--days', dest='days', type=nonnegative, default=90, help='select resources unused for more than N days (default 90; --days is a compatibility alias)')
+    age = parser.add_mutually_exclusive_group()
+    age.add_argument('--unused-for-days', '--days', dest='days', type=nonnegative, default=90, help='select resources unused for more than N days (default 90; --days is a compatibility alias)')
+    age.add_argument('--unused-for-hours', dest='days', type=lambda value: nonnegative(value) / 24, metavar='N', help='select resources unused for more than N hours')
     parser.add_argument('--metadata', type=metadata_arg, help='key=value,key2=value2')
     parser.add_argument('--age-from', choices=['paused','started'], default='paused')
     parser.add_argument('--delete-snapshots', action='store_true', help='also include all named snapshots from matching paused sandboxes, regardless of snapshot age')

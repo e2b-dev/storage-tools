@@ -37,9 +37,19 @@ class Commands(unittest.TestCase):
         for command in ['cleanup-storage-inventory', 'cleanup-paused-sandboxes']:
             extra = ['inventory.csv'] if command == 'cleanup-storage-inventory' else []
             for flag, value in [('--unused-for-days', '-1'), ('--unused-for-days', 'nan'),
+                                ('--unused-for-hours', '-1'), ('--unused-for-hours', 'nan'),
+                                ('--unused-for-hours', 'inf'),
                                 ('--rate', 'inf'), ('--rate', '0'), ('--limit', '0')]:
                 result = self.command(command, *extra, flag, value)
                 self.assertEqual(result.returncode, 2, result.stderr)
+
+    def test_age_units_cannot_be_combined(self):
+        for command in ['cleanup-storage-inventory', 'cleanup-paused-sandboxes']:
+            extra = ['inventory.csv'] if command == 'cleanup-storage-inventory' else []
+            for day_flag in (['--unused-for-days', '--days'] if not extra else ['--unused-for-days']):
+                result = self.command(command, *extra, day_flag, '1', '--unused-for-hours', '6')
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn('not allowed with argument', result.stderr)
 
     def test_inventory_dry_run_filters_without_credentials_or_results(self):
         source = self.folder / 'inventory.csv'
@@ -105,6 +115,9 @@ class Commands(unittest.TestCase):
         self.addCleanup(server.shutdown)
         self.env.update(E2B_API_KEY='offline-test-key', E2B_API_URL=f'http://127.0.0.1:{server.server_port}')
         canonical = self.command('cleanup-paused-sandboxes', '--unused-for-days', '3', '--metadata', 'env=test')
+        hours = self.command('cleanup-paused-sandboxes', '--unused-for-hours', '72', '--metadata', 'env=test')
+        self.assertEqual(hours.returncode, 0, hours.stderr)
+        self.assertEqual(canonical.stdout, hours.stdout)
         legacy = self.command('cleanup-paused-sandboxes', '--days', '3', '--metadata', 'env=test')
         self.assertEqual(canonical.returncode, 0, canonical.stderr)
         self.assertEqual(legacy.returncode, 0, legacy.stderr)

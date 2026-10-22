@@ -170,8 +170,9 @@ class Suite:
 
     def wrapper(self, label, extra=(), apply=True):
         metadata = ','.join(f'{key}={value}' for key, value in self.selection.items())
+        age = [] if any(flag in extra for flag in ('--unused-for-days', '--unused-for-hours', '--days')) else ['--unused-for-hours', '0']
         args = [str(ROOT / 'storage_tools.py'), 'cleanup-paused-sandboxes',
-                '--unused-for-days', '0', '--metadata', metadata, '--recheck',
+                *age, '--metadata', metadata, '--recheck',
                 '--rate', '15', '--limit', '10000', '--page-size', '2', '--concurrency', '1']
         if apply:
             args.append('--apply')
@@ -215,6 +216,8 @@ class Suite:
         protected = self.create(protected=True)
         self.run('default-age', ['--unused-for-days', '3'])
         self.check(all(self.info(sid) is not None for sid in candidates), 'three-day policy preserves fresh fixtures')
+        self.run('hours-age', ['--unused-for-hours', '1'])
+        self.check(all(self.info(sid) is not None for sid in candidates), 'one-hour policy preserves fresh fixtures')
         self.run('dry-run', ['--delete-snapshots', '--journal', str(self.folder / 'dry-run.json')], apply=False)
         self.check(not any(e['method'] == 'DELETE' for e in self.proxy.events), 'dry run sends no DELETEs')
         self.check(not list(self.folder.glob('*.json')), 'dry run creates no recovery journal')

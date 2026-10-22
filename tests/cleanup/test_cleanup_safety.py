@@ -256,6 +256,25 @@ class CleanupSafety(unittest.TestCase):
         self.each(dict(sandboxes=[sandbox("old"), sandbox("recent-pause", 1),
                                   sandbox("running", state="running")]), [], verify)
 
+    def test_hours_delete_only_sandboxes_older_than_cutoff(self):
+        def verify(b, p):
+            self.assertEqual(p.returncode, 0, p.stderr)
+            self.assertEqual([c for c in b.calls if c[0] == "kill"], [["kill", "old"]])
+        self.each(dict(sandboxes=[sandbox("old", 1.5 / 24), sandbox("recent", 0.5 / 24)]),
+                  ["--unused-for-hours", "1", "--apply"], verify)
+
+    def test_hours_share_existing_days_journal(self):
+        from cleanup_paused_sandboxes import parser_for_cli
+        from cleanup_journal import Journal
+        with patch.dict(os.environ, {"E2B_API_KEY": "offline-test-key"}):
+            journals = [Journal(None, dict(days=parser_for_cli().parse_args(flags).days,
+                                         age_from="paused", metadata={}), False)
+                        for flags in (["--unused-for-hours", "36"], ["--unused-for-days", "1.5"],
+                                      ["--days", "1.5"])]
+        self.assertEqual(journals[0].scope["days"], 1.5)
+        self.assertEqual(len({j.path for j in journals}), 1)
+        self.assertEqual(parser_for_cli().parse_args([]).days, 90)
+
     def test_started_age_mode(self):
         self.each(dict(sandboxes=[sandbox("old-start-recent-pause", 1)]), ["--age-from", "started"],
                   lambda b, p: self.assertIn("old-start-recent-pause\t", p.stdout))
