@@ -76,10 +76,10 @@ class Commands(unittest.TestCase):
         self.assertIn('Events used       : 0', result.stdout)
 
     def test_standalone_cleanup_quickstart_uses_packaged_files(self):
-        shutil.copytree(ROOT / 'cleanup', self.folder / 'cleanup', ignore=shutil.ignore_patterns('__pycache__'))
+        shutil.copytree(ROOT / 'scheduled-cleanup', self.folder / 'scheduled-cleanup', ignore=shutil.ignore_patterns('__pycache__'))
         for name in ['requirements.txt', 'LICENSE']:
             shutil.copy(ROOT / name, self.folder / name)
-        quickstart = (self.folder / 'cleanup/README.md').read_text().split('## Request budgets')[0]
+        quickstart = (self.folder / 'scheduled-cleanup/README.md').read_text().split('## Request budgets')[0]
         commands = [shlex.split(line) for line in quickstart.splitlines()
                     if line.startswith('.venv/bin/python ')]
         self.assertTrue(commands)
