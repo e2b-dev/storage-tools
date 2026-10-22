@@ -267,12 +267,13 @@ class CleanupSafety(unittest.TestCase):
         from cleanup_paused_sandboxes import parser_for_cli
         from cleanup_journal import Journal
         with patch.dict(os.environ, {"E2B_API_KEY": "offline-test-key"}):
-            journals = [Journal(None, dict(days=parser_for_cli().parse_args(flags).days,
-                                         age_from="paused", metadata={}), False)
-                        for flags in (["--unused-for-hours", "36"], ["--unused-for-days", "1.5"],
-                                      ["--days", "1.5"])]
-        self.assertEqual(journals[0].scope["days"], 1.5)
-        self.assertEqual(len({j.path for j in journals}), 1)
+            for hours, days in [("36", "1.5"), ("2.4", "0.1")]:
+                journals = [Journal(None, dict(days=parser_for_cli().parse_args(flags).days,
+                                             age_from="paused", metadata={}), False)
+                            for flags in (["--unused-for-hours", hours], ["--unused-for-days", days],
+                                          ["--days", days])]
+                self.assertEqual(journals[0].scope["days"], float(days))
+                self.assertEqual(len({j.path for j in journals}), 1)
         self.assertEqual(parser_for_cli().parse_args([]).days, 90)
 
     def test_started_age_mode(self):

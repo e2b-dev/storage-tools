@@ -12,6 +12,7 @@
 """
 
 import argparse
+from decimal import Decimal
 import asyncio
 import csv
 import math
@@ -336,7 +337,7 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     if args.unused_for_hours is not None:
         if not math.isfinite(args.unused_for_hours) or args.unused_for_hours < 0:
             parser.error("--unused-for-hours must be finite and at least 0")
-        args.unused_for_days = args.unused_for_hours / 24
+        args.unused_for_days = float(Decimal(str(args.unused_for_hours)) / 24)
     if args.limit is not None and args.limit < 1:
         parser.error("--limit must be at least 1")
     if args.concurrency < 1:

@@ -155,6 +155,7 @@ class CleanupTests(unittest.TestCase):
         self.assertEqual(self.outcomes(), {"old": "deleted"})
 
     def test_hours_filter_and_interactive_does_not_prompt_for_days(self) -> None:
+        self.assertEqual(cleanup.parse_args([str(self.inventory), "--unused-for-hours", "2.4"]).unused_for_days, 0.1)
         now = datetime.now(UTC)
         client = FakeClient(snapshots={"old": True, "recent": True})
         self.write(row("snapshot", "old", now - timedelta(minutes=90)),
