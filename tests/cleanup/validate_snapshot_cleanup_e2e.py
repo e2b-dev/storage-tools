@@ -244,7 +244,7 @@ class Suite:
         self.check(self.details(self.never).get('lastSpawnedAt') is None,
                    'never-used snapshot survives with null lastSpawnedAt')
 
-    def run(self, label, snapshot, expected, apply=False, inject_retry=False):
+    def run(self, label, snapshot, expected, apply=False, inject_retry=False, reuse_during_hold=False):
         # Recompute relative age for every command, keeping the absolute cutoff at
         # the midpoint of actual API usage timestamps despite time spent in tests.
         midpoint = timestamp(self.old['lastSpawnedAt']) + (
@@ -262,7 +262,25 @@ class Suite:
         self.api.inject_429 = self.old['raw_id'] if inject_retry else None
         env = {**os.environ, 'E2B_API_KEY': self.api.token, 'E2B_API_URL': self.api.url,
                'PYTHONDONTWRITEBYTECODE': '1'}
-        result = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
+        with subprocess.Popen(command, cwd=ROOT, env=env, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, text=True) as process:
+            try:
+                if reuse_during_hold:
+                    deadline = time.monotonic() + 30
+                    while not any(e['path'] == '/templates/' + snapshot['raw_id'] and e.get('status') == 200
+                                  for e in self.api.events):
+                        if process.poll() is not None or time.monotonic() >= deadline:
+                            raise AssertionError('cleanup did not observe the fixture before its hold')
+                        time.sleep(0.1)
+                    self.check(not any(e['method'] == 'DELETE' for e in self.api.events),
+                               f'{label}: no delete before reuse during the hold')
+                    self.use(snapshot)
+                stdout, stderr = process.communicate(timeout=240)
+                result = subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.communicate()
         events = list(self.api.events)
         output = self.redact(result.stdout + result.stderr)
         (self.evidence / f'{label}.log').write_text(output)
@@ -275,8 +293,17 @@ class Suite:
         matches = {line.split('\t', 1)[0] for line in result.stdout.splitlines() if '\tlast_used=' in line}
         self.check(matches == expected, f'{label}: selected exactly the expected snapshots')
         deletes = [i for i, event in enumerate(events) if event['method'] == 'DELETE']
-        if not apply or not expected:
+        if not apply or not expected or reuse_during_hold:
             self.check(not deletes, f'{label}: no DELETE requests')
+        if apply and expected:
+            reads = [e for e in events if e['method'] == 'GET'
+                     and e['path'] == '/templates/' + snapshot['raw_id']]
+            self.check(len(reads) >= 2 and (timestamp(reads[1]['at']) - timestamp(reads[0]['at'])).total_seconds() >= 120,
+                       f'{label}: usage rechecked after the full two-minute hold')
+        if reuse_during_hold:
+            self.check('snapshot usage or build state changed' in output,
+                       f'{label}: newly recorded use cancels deletion')
+            self.check(self.details(snapshot) is not None, f'{label}: reused snapshot survives')
         if inject_retry:
             self.check(len(deletes) == 2 and events[deletes[0]]['status'] == 429
                        and 200 <= events[deletes[1]]['status'] < 300,
@@ -291,10 +318,12 @@ class Suite:
         parent = self.create('parent')
         control = self.create('control')
         self.check(control.pause(), 'out-of-scope control pauses')
-        self.old, self.recent, self.never = [self.snapshot(parent, role) for role in ('old', 'recent', 'never')]
+        self.old, self.recent, self.never, self.buffered = [
+            self.snapshot(parent, role) for role in ('old', 'recent', 'never', 'buffered')]
         self.api.deletable.add(self.old['raw_id'])
-        self.check(len({s['raw_id'] for s in self.snapshots}) == 3, 'three distinct snapshots from the same parent')
+        self.check(len({s['raw_id'] for s in self.snapshots}) == 4, 'four distinct snapshots from the same parent')
         self.check(self.details(self.never).get('lastSpawnedAt') is None, 'never-used fixture has unknown use')
+        self.use(self.buffered)
         self.use(self.old)
         # The recent spawn happens only after the old usage is visible. Retain a
         # minimum separation even if this account flushes usage immediately.
@@ -319,6 +348,8 @@ class Suite:
         self.run('dry-never-alias', self.never, set())
         self.run('apply-recent-id', self.recent, set(), apply=True)
         self.run('apply-never-alias', self.never, set(), apply=True)
+        self.run('apply-reused-during-hold', self.buffered, {self.buffered['raw_id']},
+                 apply=True, reuse_during_hold=True)
         self.run('apply-old-alias-retry', self.old, {self.old['raw_id']}, apply=True, inject_retry=True)
         self.check(self.details(self.old, absent_ok=True) is None, 'old unused snapshot is deleted')
         self.run('apply-old-again', self.old, set(), apply=True)

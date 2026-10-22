@@ -89,8 +89,8 @@ Paused-sandbox deletion can race with a concurrent resume: the API has no atomic
 Inventory cleanup always checks current sandbox state; paused-sandbox cleanup adds that lookup with
 `--recheck`. Coordinate resumes in your application when this race is unacceptable.
 
-Snapshot usage updates are best-effort: they can be delayed or lost. Rechecks cannot guarantee
-that no newer use occurred. See [snapshot cleanup](cleanup/SNAPSHOTS.md#scheduling-and-failure-handling)
+Snapshot cleanup waits at least two minutes per candidate, in batches, then rechecks usage.
+Usage updates can still be lost or delayed longer than the buffer. See [snapshot cleanup](cleanup/SNAPSHOTS.md#scheduling-and-failure-handling)
 before scheduling deletion.
 
 ### Existing entry points and recovery state

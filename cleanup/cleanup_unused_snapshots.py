@@ -4,6 +4,8 @@
 Deletion affects every tag/build of the canonical snapshot resource. Usage telemetry
 is best-effort: it is buffered and can be delayed or lost, so it is not authoritative
 proof of non-use. Fresh lookups cannot make deletion atomic with use.
+Apply runs hold each batch for at least 120 seconds after its final candidate
+observation, then recheck membership, usage and build state before deletion.
 """
 import argparse
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
@@ -16,6 +18,10 @@ from cleanup_paused_sandboxes import hours_as_days
 from request_control import AuthorizationError, BackendError, HTTPError, Missing, RetryLaterError
 from sandbox_backend import SelectionChanged, positive
 from snapshot_backend import backend
+
+
+OBSERVATION_HOLD_SECONDS = 120
+CANDIDATE_BATCH_SIZE = 1000
 
 
 class NoMetadata(argparse.Action):
@@ -47,6 +53,19 @@ def eligible(info, cutoff):
     return info.retention_at is not None and info.retention_at < cutoff
 
 
+def hold_for_usage_updates(control, observed_at):
+    deadline = observed_at + OBSERVATION_HOLD_SECONDS
+    while True:
+        if control.cancelled.is_set():
+            raise BackendError('cleanup stopped')
+        remaining = deadline - control.clock()
+        if remaining <= 0:
+            return
+        # The shared clock is monotonic; its default sleep waits on the same
+        # cancellation event as HTTP pacing, so cancellation wakes the hold.
+        control.sleep(remaining)
+
+
 def run(args, api, cutoff):
     print('Warning: snapshot usage telemetry is buffered and can be delayed or lost. '
           'Last-use timestamps are not authoritative proof of non-use; '
@@ -67,7 +86,7 @@ def run(args, api, cutoff):
                     skipped += 1
                     print(f'Skipped {template_id}: last use or latest build is unknown or still in progress', flush=True)
                 elif eligible(info, cutoff):
-                    yield info
+                    yield info, api.control.clock()
             except Missing:
                 skipped += 1
                 print(f'Skipped {reference}: already gone', flush=True)
@@ -122,18 +141,26 @@ def run(args, api, cutoff):
     pool = ThreadPoolExecutor(max_workers=args.concurrency) if args.apply else None
     pending = set()
     try:
-        for info in islice(candidates(), args.limit):
-            total += 1
-            print(f'{info.template_id}\tlast_used={info.last_spawned_at.isoformat()}'
-                  f'\tretention_at={info.retention_at.isoformat()}', flush=True)
+        selected = islice(candidates(), args.limit)
+        batch_size = CANDIDATE_BATCH_SIZE if pool else 1
+        while batch := list(islice(selected, batch_size)):
+            for info, _ in batch:
+                total += 1
+                print(f'{info.template_id}\tlast_used={info.last_spawned_at.isoformat()}'
+                      f'\tretention_at={info.retention_at.isoformat()}', flush=True)
             if pool:
-                pending.add(pool.submit(delete, info))
-                if len(pending) >= args.concurrency:
-                    done, pending = wait(pending, return_when=FIRST_COMPLETED)
-                    for future in done:
-                        collect(future)
-        for future in pending:
-            collect(future)
+                print(f'Holding {len(batch)} snapshot(s) for {OBSERVATION_HOLD_SECONDS}s '
+                      'after the last observation before rechecking.', flush=True)
+                hold_for_usage_updates(api.control, batch[-1][1])
+                for info, _ in batch:
+                    pending.add(pool.submit(delete, info))
+                    if len(pending) >= args.concurrency:
+                        done, pending = wait(pending, return_when=FIRST_COMPLETED)
+                        for future in done:
+                            collect(future)
+                for future in pending:
+                    collect(future)
+                pending.clear()
     except BaseException:
         api.cancel()
         for future in pending:
