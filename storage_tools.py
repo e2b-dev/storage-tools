@@ -8,9 +8,9 @@ import sys
 
 
 COMMANDS = {
-    "cleanup-storage-inventory": "cleanup-storage-inventory/cleanup_storage_inventory.py",
-    "cleanup-unused-snapshots": "cleanup/cleanup_unused_snapshots.py",
-    "cleanup-paused-sandboxes": "cleanup/cleanup_paused_sandboxes.py",
+    "cleanup-storage-inventory": "bulk-cleanup/cleanup_storage_inventory.py",
+    "cleanup-unused-snapshots": "scheduled-cleanup/cleanup_unused_snapshots.py",
+    "cleanup-paused-sandboxes": "scheduled-cleanup/cleanup_paused_sandboxes.py",
     "analyze-sandbox-reuse": "lifecycle_insights/analyze_sandbox_reuse.py",
 }
 

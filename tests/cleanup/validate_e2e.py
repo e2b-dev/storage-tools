@@ -22,7 +22,7 @@ from e2b.exceptions import NotFoundException
 
 ROOT = Path(__file__).resolve().parents[2]
 PYTHON_SCRIPT = [sys.executable, str(ROOT / "storage_tools.py"), "cleanup-paused-sandboxes"]
-SHELL_SCRIPT = [str(ROOT / "cleanup" / "cleanup_paused_sandboxes_cli.sh")]
+SHELL_SCRIPT = [str(ROOT / "scheduled-cleanup" / "cleanup_paused_sandboxes_cli.sh")]
 MIN_OLD_AGE_S = 60  # how long the "old" sandbox runs before being paused
 SANDBOX_TIMEOUT_S = 900  # running timeout; paused sandboxes and named snapshots need explicit cleanup
 
@@ -56,7 +56,7 @@ def matched_ids(stdout: str) -> set[str]:
 
 
 def validate_live_pacing(sandbox_id, metadata):
-    sys.path.insert(0, str(ROOT / 'cleanup'))
+    sys.path.insert(0, str(ROOT / 'scheduled-cleanup'))
     from sandbox_backend import APIBackend
     api = APIBackend(rate=20, page_size=1)
     starts, limits = [], []

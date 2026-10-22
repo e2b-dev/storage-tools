@@ -15,7 +15,7 @@ from urllib.parse import quote
 
 import httpx
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'cleanup'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scheduled-cleanup'))
 import cleanup_unused_snapshots as cleanup
 from cleanup_journal import run_lock
 from request_control import RequestControl

@@ -145,7 +145,7 @@ class Suite:
             'run_id': self.run_id, 'started_at': now().isoformat(),
             'timestamp_source': 'real API GET /templates/{rawID}?limit=1 lastSpawnedAt; SDK get_info.started_at',
             'claim_scope': 'Validates retention against observed API-reported last use. The buffered, best-effort metric does not prove authoritative inactivity or exclude concurrent reuse.',
-            'tool_sha256': hashlib.sha256((ROOT / 'cleanup/cleanup_unused_snapshots.py').read_bytes()).hexdigest(),
+            'tool_sha256': hashlib.sha256((ROOT / 'scheduled-cleanup/cleanup_unused_snapshots.py').read_bytes()).hexdigest(),
             'checks': self.checks, 'commands': self.commands,
             'sandboxes': self.sandboxes, 'snapshots': self.snapshots,
         }
