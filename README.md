@@ -92,6 +92,7 @@ the E2B CLI.
 ```bash
 uv run python -m unittest discover -s tests -v
 uv run python -m unittest discover -s cleanup-storage-inventory/tests -v
+uv run python tests/lifecycle_insights/test_analyze_reuse.py
 shellcheck lifecycle_insights/*.sh cleanup/*.sh
 ```
 
