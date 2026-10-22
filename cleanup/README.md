@@ -116,12 +116,9 @@ Monitor nonzero exits and rotate the log. An hourly job enforces retention on an
 | `--concurrency N` | `10` | Up to N sandbox deletes in flight; 1–64. |
 | `--page-size N` | `100` | Resources per list request; 1–100. |
 | `--retries N` | `5` | Additional attempts after transient errors; 0–10. |
-| `--limit N` | none | Process at most N matching/pending sandboxes this run. |
+| `--limit N` | none | Process at most N matching sandboxes this run. |
 | `--lock-file PATH` | automatic | Local overlap lock for apply runs. |
 | `--recheck` | off | Fresh state, age and metadata lookup immediately before a normal sandbox delete. |
-| `--delete-snapshots` | off | Also delete named snapshots associated with selected sandboxes, regardless of snapshot age. |
-| `--journal PATH` | automatic | Named-snapshot recovery journal. |
-| `--retry-pending` | off | With `--delete-snapshots`, process existing journal entries only. |
 
 ## Deletion semantics
 
@@ -137,24 +134,18 @@ Exit 0 means no failures, exit 1 indicates a failed request or local operation, 
 invalid arguments, and exit 130 indicates interruption. Completed deletions stand after an
 interruption; requests already in flight can finish.
 
-## Optional named-snapshot cleanup
+## Snapshots
 
-A named snapshot is a separate resource that outlives its source sandbox. It is touched only with
-`--delete-snapshots`. The API identifies a named snapshot as `team-slug/name:tag` (or
-`templateID:tag` when it has no name); both forms are accepted and deleted. This mode processes parents sequentially, rechecking state, age, metadata
-and timestamps around snapshot enumeration. It uses the same request budget as normal cleanup.
+This command deletes paused sandboxes only. Their pause state is removed with the sandbox;
+separately created snapshots survive. Snapshot retention uses the snapshot's own recorded
+usage, independent of when its source sandbox was paused.
 
-Before killing a parent, the tool durably records its timestamps and snapshot IDs. Reruns can
-finish snapshot deletions after a lost kill response, partial failure or interruption. Changed
-parent eligibility cancels its pending entry. The journal is private, locked and written
-atomically; it is bound to credentials, endpoint and selection. Keep those consistent and retain
-the journal until no entries remain. Dry runs do not create journals. Existing pending journal
-entries are loaded into memory; the normal sandbox-only path needs no recovery inventory.
+Use [snapshot cleanup](SNAPSHOTS.md) to select snapshots by their own recorded last use.
+Its usage counter includes resumes of derived sandboxes; updates can be delayed or lost.
 
-Snapshots created after enumeration and snapshots whose parents were already gone before the
-run are not discovered. Snapshot retention is a separate policy from sandbox retention. Capturing again under the
-same name updates the same snapshot resource; deleting it also removes that newer capture.
-Keep `--delete-snapshots` off for names shared or reused by other workloads.
+The former `--delete-snapshots`, `--journal`, and `--retry-pending` options are rejected before
+account access. Existing recovery files are left untouched; review their snapshot IDs against
+the snapshot command instead of replaying parent-based deletion.
 
 ## Verification
 
@@ -166,7 +157,7 @@ Run offline tests from the repository root:
 
 `tests/cleanup/validate_e2e.py` creates uniquely tagged fixtures in the connected account, exercises
 both entry points with one-resource pages, and deletes only its own fixtures. It validates age
-selection, a recent resume, dry runs, bounded apply, named-snapshot cleanup and running-sandbox
+selection, a recent resume, dry runs, bounded apply, named-snapshot preservation and running-sandbox
 preservation. It is an opt-in live test, not a million-resource benchmark.
 
 For cron safety checks against real fixtures, run:
@@ -176,7 +167,7 @@ For cron safety checks against real fixtures, run:
 ```
 
 This runs the cron wrapper with an empty environment, checks concurrent workers, overlapping
-jobs, interruption, retries, resume races, and snapshot recovery. A local proxy restricts
+jobs, interruption, retries, resume races, and named-snapshot preservation. A local proxy restricts
 requests to the test's fixtures and injects failures; the resources and permitted API calls
 are real. Evidence stays in gitignored `verification/`, and all fixtures are cleaned up.
 

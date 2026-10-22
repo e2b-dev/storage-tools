@@ -22,6 +22,19 @@ From the repository root, the same command is available as
 For scheduled cleanup from the live API and read-only lifecycle analysis, see the
 [storage tools overview](../README.md) and [storage management guide](https://docs.e2b.dev/sandbox/storage-management).
 
+## Resource types and age
+
+Use `--type paused_sandbox` or `--type snapshot` to select one resource type. Without
+`--type`, both are selected. The age flags use the CSV's `last_used_at`:
+
+| Resource | Age starts at |
+| --- | --- |
+| Paused sandbox | Its most recent pause |
+| Snapshot | Its most recent use to create a sandbox |
+
+Snapshots do not resume. Their age is independent of the parent sandbox's pause time.
+The inventory is rebuilt daily; snapshot uses after the export are not rechecked.
+
 ## Tests
 
 ```bash

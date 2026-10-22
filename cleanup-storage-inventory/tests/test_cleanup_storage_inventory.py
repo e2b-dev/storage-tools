@@ -181,6 +181,28 @@ class CleanupTests(unittest.TestCase):
         self.assertEqual(self.outcomes(), {"old": "deleted"})
         self.assertEqual(client.calls, [("delete_snapshot", "old")])
 
+    def test_resource_types_use_their_own_last_used_timestamp(self) -> None:
+        now = datetime.now(UTC)
+        client = FakeClient(sandboxes={"old-parent": PAUSED, "recent-parent": PAUSED},
+                            snapshots={"old-snapshot": True, "recent-snapshot": True})
+        self.write(row("paused_sandbox", "old-parent"),
+                   row("paused_sandbox", "recent-parent", now),
+                   row("snapshot", "old-snapshot"),
+                   row("snapshot", "recent-snapshot", now))
+        code, output = self.run_main("--unused-for-days", "30", "--apply", client=client)
+        self.assertEqual(code, 0, output)
+        self.assertEqual(self.outcomes(), {"old-parent": "deleted", "old-snapshot": "deleted"})
+        self.assertIn("recent-snapshot", client.snapshots)
+        self.assertIn("recent-parent", client.sandboxes)
+
+    def test_snapshot_only_selection_never_calls_sandbox_api(self) -> None:
+        client = FakeClient(sandboxes={"parent": PAUSED}, snapshots={"snapshot": True})
+        self.write(row("paused_sandbox", "parent"), row("snapshot", "snapshot"))
+        code, output = self.run_main("--type", "snapshot", "--unused-for-days", "30", "--apply", client=client)
+        self.assertEqual(code, 0, output)
+        self.assertEqual(client.calls, [("delete_snapshot", "snapshot")])
+        self.assertIn("parent", client.sandboxes)
+
     def test_maps_each_case_to_an_outcome_and_kills_before_deleting_snapshots(
         self,
     ) -> None:

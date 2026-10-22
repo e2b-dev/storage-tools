@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Preview or delete old paused E2B sandboxes.
 
-Named snapshots are separate resources, included only with --delete-snapshots.
+Named snapshots are separate resources and are never deleted by this command.
 Pages are consumed incrementally, and every HTTP attempt shares the request budget.
 Deletion uses the listed state by default; --recheck adds a fresh lookup.
 """
@@ -12,13 +12,20 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import sys
 
-from cleanup_journal import Journal, run_lock
-from sandbox_backend import AuthorizationError, BackendError, Missing, RetryLaterError, SelectionChanged, backend, metadata_arg, nonnegative, positive, timestamp
+from cleanup_journal import run_lock
+from sandbox_backend import AuthorizationError, BackendError, Missing, RetryLaterError, SelectionChanged, backend, metadata_arg, nonnegative, positive
 
 
 def hours_as_days(value):
     nonnegative(value)
     return float(Decimal(value) / 24)
+
+
+class RemovedSnapshotOption(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        parser.error(f'{option_string} is no longer supported by cleanup-paused-sandboxes; '
+                     'use cleanup-unused-snapshots for snapshot cleanup. '
+                     'Existing recovery journals are not read or modified.')
 
 
 def parser_for_cli():
@@ -28,7 +35,9 @@ def parser_for_cli():
     age.add_argument('--unused-for-hours', dest='days', type=hours_as_days, metavar='N', help='select resources unused for more than N hours')
     parser.add_argument('--metadata', type=metadata_arg, help='key=value,key2=value2')
     parser.add_argument('--age-from', choices=['paused','started'], default='paused')
-    parser.add_argument('--delete-snapshots', action='store_true', help='also include all named snapshots from matching paused sandboxes, regardless of snapshot age')
+    parser.add_argument('--delete-snapshots', '--retry-pending', action=RemovedSnapshotOption,
+                        nargs=0, help=argparse.SUPPRESS)
+    parser.add_argument('--journal', action=RemovedSnapshotOption, nargs='?', help=argparse.SUPPRESS)
     parser.add_argument('--apply', action='store_true', help='delete matches; default is a dry run')
     parser.add_argument('--resumes-stopped', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--recheck', action='store_true', help='recheck state, age and metadata immediately before deletion')
@@ -36,10 +45,8 @@ def parser_for_cli():
     parser.add_argument('--concurrency', type=int, default=10, help='sandbox deletes in flight, default 10')
     parser.add_argument('--page-size', type=int, default=100, help='resources per list request, 1-100, default 100')
     parser.add_argument('--retries', type=int, default=5, help='retries per request after 429/5xx or transport errors, default 5')
-    parser.add_argument('--limit', type=int, help='process at most N matching/pending sandboxes per run')
+    parser.add_argument('--limit', type=int, help='process at most N matching sandboxes per run')
     parser.add_argument('--lock-file', help='local overlap lock; defaults to a credential/endpoint-specific file in the temporary directory')
-    parser.add_argument('--journal', help='named snapshot recovery file (default: account/selection-specific file beside this script)')
-    parser.add_argument('--retry-pending', action='store_true', help='only process existing journal entries; use the same selection options as the original run')
     parser.add_argument('--backend', choices=['sdk','cli'], default='sdk', help=argparse.SUPPRESS)
     return parser
 
@@ -129,141 +136,14 @@ def run_sandboxes(args, api, cutoff):
         if pool:
             pool.shutdown(wait=True, cancel_futures=True)
     if args.apply:
-        print(f'Deleted {deleted} of {total} matching/pending paused sandbox(es); skipped {skipped}, failed {failed}.')
+        print(f'Deleted {deleted} of {total} matching paused sandbox(es); skipped {skipped}, failed {failed}.')
     else:
-        print(f'Dry run: {total} paused sandbox(es) matched/pending. Re-run with --apply to delete.')
+        print(f'Dry run: {total} paused sandbox(es) matched. Re-run with --apply to delete.')
     return 1 if failed or report_invalid_rows(api) else 0
 
 
 def run(args, api, cutoff):
-    def eligible(info):
-        return is_eligible(info, args, cutoff)
-
-    if not args.delete_snapshots:
-        return run_sandboxes(args, api, cutoff)
-
-    scope = dict(days=float(args.days), age_from=args.age_from, metadata=args.metadata or {})
-    with Journal(args.journal, scope, args.apply) as journal:
-        # Load recovery records before listing so --retry-pending can work during list failures.
-        pending = journal.pending if journal else {}
-        recovering = set(pending)
-
-        def entries():
-            for sid in recovering:
-                yield sid, None
-            if not args.retry_pending:
-                for info in selected_rows(args, api, cutoff):
-                    if info.sandbox_id not in recovering:
-                        yield info.sandbox_id, info
-
-        total = 0
-        deleted = skipped = failed = snapshots_deleted = 0
-        if journal:
-            print(f'Named snapshot recovery journal: {journal.path}')
-        for sid, listed in islice(entries(), args.limit):
-            total += 1
-            record = pending.get(sid)
-            if listed:
-                print(f'{sid}\tstarted={listed.started_at.isoformat()}\tpaused={listed.end_at.isoformat()}')
-            else:
-                print(f'Pending cleanup for {sid}')
-            try:
-                if not args.apply:
-                    if args.delete_snapshots:
-                        snapshots = record['snapshots'] if record else api.snapshots(sid)
-                        for snapshot in snapshots:
-                            print(f'  named snapshot {snapshot}')
-                    continue
-
-                try:
-                    current = api.get_info(sid)
-                except Missing:
-                    current = None
-                if current is None and record is None:
-                    print(f'Skipped {sid}: already gone')
-                    skipped += 1
-                    continue
-                if current is not None:
-                    unchanged = record is None or (current.started_at == timestamp(record['started_at']) and current.end_at == timestamp(record['paused_at']))
-                    if not eligible(current) or not unchanged or (record and record['status'] == 'sandbox_deleted'):
-                        print(f'Skipped {sid}: state, metadata, or pause changed')
-                        skipped += 1
-                        if record:
-                            # Cancel snapshots of a parent whose eligibility changed; never delete them here.
-                            del pending[sid]
-                            journal.save()
-                        continue
-                    if args.delete_snapshots and record is None:
-                        record = dict(status='prepared', started_at=current.started_at.isoformat(),
-                                      paused_at=current.end_at.isoformat(), snapshots=api.snapshots(sid))
-                        pending[sid] = record
-                        journal.save()  # Must be durable before kill can run.
-                    # Preserve the journaled parent identity across snapshot enumeration.
-                    try:
-                        latest = api.get_info(sid)
-                    except Missing:
-                        latest = None
-                    if latest is not None and (not eligible(latest) or latest.started_at != current.started_at or latest.end_at != current.end_at):
-                        print(f'Skipped {sid}: changed immediately before deletion')
-                        skipped += 1
-                        if record:
-                            del pending[sid]
-                            journal.save()
-                        continue
-                    def recheck_parent():
-                        retry_current = api.get_info(sid)
-                        if (not eligible(retry_current) or retry_current.started_at != current.started_at
-                                or retry_current.end_at != current.end_at):
-                            raise SelectionChanged('state, metadata, or pause changed during delete retry')
-
-                    if latest is not None and api.kill(sid, before_retry=recheck_parent):
-                        deleted += 1
-                        print(f'Deleted paused sandbox {sid}')
-                    else:
-                        skipped += 1
-                        print(f'Paused sandbox {sid} already gone')
-                else:
-                    skipped += 1
-                    print(f'Paused sandbox {sid} already gone; recovering named snapshot cleanup')
-                if record:
-                    record['status'] = 'sandbox_deleted'
-                    journal.save()
-                    for snapshot in list(record['snapshots']):
-                        try:
-                            if api.delete_snapshot(snapshot):
-                                snapshots_deleted += 1
-                                print(f'  Deleted named snapshot {snapshot}')
-                            else:
-                                print(f'  Named snapshot {snapshot} already gone')
-                        except (AuthorizationError, RetryLaterError):
-                            raise
-                        except BackendError as error:
-                            failed += 1
-                            print(f'Failed named snapshot {snapshot}: {error}', file=sys.stderr)
-                            continue
-                        record['snapshots'].remove(snapshot)
-                        journal.save()
-                    if not record['snapshots']:
-                        del pending[sid]
-                        journal.save()
-            except SelectionChanged as error:
-                skipped += 1
-                print(f'Skipped {sid}: {error}')
-                if record:
-                    del pending[sid]
-                    journal.save()
-            except (AuthorizationError, RetryLaterError):
-                raise
-            except BackendError as error:
-                failed += 1
-                print(f'Failed {sid}: {error}', file=sys.stderr)
-        if args.apply:
-            print(f'Deleted {deleted} of {total} matching/pending paused sandbox(es); skipped {skipped}, failed {failed}.')
-            if args.delete_snapshots:
-                print(f'Deleted {snapshots_deleted} named snapshot(s); {len(pending)} pending sandbox record(s).')
-        else:
-            print(f'Dry run: {total} paused sandbox(es) matched/pending; failed {failed}. Re-run with --apply to delete.')
-        return 1 if failed or report_invalid_rows(api) else 0
+    return run_sandboxes(args, api, cutoff)
 
 
 def main(argv=None):
@@ -271,8 +151,6 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if not 0 <= args.days <= 365000:
         parser.error('--unused-for-days must be between 0 and 365000')
-    if args.retry_pending and not args.delete_snapshots:
-        parser.error('--retry-pending requires --delete-snapshots')
     if not 1 <= args.page_size <= 100:
         parser.error('--page-size must be between 1 and 100')
     if not 1 <= args.concurrency <= 64:

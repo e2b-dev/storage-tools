@@ -11,7 +11,6 @@ Requires E2B_API_KEY and the Python SDK. Both entry points use the shared HTTP c
 import re
 import subprocess
 import sys
-import tempfile
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -86,9 +85,7 @@ def validate(script_name: str, script: list[str]) -> None:
 
     created: list[Sandbox] = []
     snapshot = None
-    journal_dir = tempfile.TemporaryDirectory(prefix="e2b-validation-")
-    script = script + ["--journal", str(Path(journal_dir.name) / "journal.json"),
-                       "--page-size", "1", "--rate", "5", "--concurrency", "2"]
+    script = script + ["--page-size", "1", "--rate", "5", "--concurrency", "2"]
     try:
         old = Sandbox.create(metadata=metadata, timeout=SANDBOX_TIMEOUT_S)
         created.append(old)
@@ -150,14 +147,13 @@ def validate(script_name: str, script: list[str]) -> None:
         check(matched_ids(proc.stdout) == set(), "no matches")
         check("Dry run: 0" in proc.stdout, "dry-run summary reports 0")
 
-        print("\n-- dry run, everything paused is old enough (--days 0), with snapshot listing")
-        proc = run(script, "--unused-for-days", "0", "--metadata", metadata_arg, "--delete-snapshots")
+        print("\n-- dry run, everything paused is old enough (--days 0)")
+        proc = run(script, "--unused-for-days", "0", "--metadata", metadata_arg)
         ids = matched_ids(proc.stdout)
         check(proc.returncode == 0, "exit 0")
         check(ids == paused_ids, f"matches exactly the three paused fixtures (got {sorted(ids)})")
         check(running.sandbox_id not in ids, "running sandbox is not listed")
         check(ids <= fixture_ids, "metadata filter kept out everything else in the account")
-        check(f"snapshot {snapshot.snapshot_id}" in proc.stdout, "named snapshot of fresh is listed")
         check("Dry run: 3" in proc.stdout, "dry-run summary reports 3")
 
         print("\n-- --age-from started: only the long-running one qualifies")
@@ -179,11 +175,10 @@ def validate(script_name: str, script: list[str]) -> None:
         snap_page = Sandbox.list_snapshots(sandbox_id=fresh.sandbox_id)
         check(any(s.snapshot_id == snapshot.snapshot_id for s in snap_page.next_items()), "default cron preserves named snapshots")
 
-        print("\n-- apply with --delete-snapshots")
-        proc = run(script, "--unused-for-days", "0", "--metadata", metadata_arg, "--apply", "--delete-snapshots")
+        print("\n-- apply deletes remaining paused sandboxes and preserves named snapshots")
+        proc = run(script, "--unused-for-days", "0", "--metadata", metadata_arg, "--apply")
         check(proc.returncode == 0, "exit 0")
         check("Deleted 2 of 2" in proc.stdout, "summary reports 2 of 2 deleted")
-        check("Deleted 1 named snapshot(s)" in proc.stdout, "summary reports 1 named snapshot deleted")
 
         for sbx in (old, fresh, resumed):
             try:
@@ -195,8 +190,8 @@ def validate(script_name: str, script: list[str]) -> None:
         check(Sandbox.get_info(protected.sandbox_id).state == SandboxState.PAUSED, 'out-of-scope paused control untouched')
         remaining = Sandbox.list_snapshots(sandbox_id=fresh.sandbox_id)
         leftover = remaining.next_items() if remaining.has_next else []
-        check(leftover == [], "no named snapshots remain for fresh")
-        check(Sandbox.delete_snapshot(snapshot.snapshot_id) is False, "named snapshot already deleted")
+        check(any(item.snapshot_id == snapshot.snapshot_id for item in leftover),
+              "named snapshot remains after its parent sandbox is deleted")
 
         print("\n-- apply again: nothing left to do")
         proc = run(script, "--unused-for-days", "0", "--metadata", metadata_arg, "--apply")
@@ -217,7 +212,6 @@ def validate(script_name: str, script: list[str]) -> None:
             except Exception as error:
                 cleanup_failed = True
                 print(f"  failed to delete sandbox {sbx.sandbox_id}: {error}")
-        journal_dir.cleanup()
         if cleanup_failed:
             raise AssertionError(f"fixture cleanup failed for {metadata_arg}; see resource IDs above")
         print(f"  fixture cleanup complete for {metadata_arg}")

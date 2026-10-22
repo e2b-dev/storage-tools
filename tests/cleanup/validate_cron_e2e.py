@@ -27,7 +27,6 @@ class GuardedAPI:
         self.client = httpx.Client(base_url=endpoint, headers={'X-API-Key': key}, timeout=60)
         self.owned = set()
         self.deletable = set()
-        self.snapshots = set()
         self.selection = {}
         self.events = []
         self.rejected = []
@@ -54,10 +53,6 @@ class GuardedAPI:
                 elif path.startswith('/sandboxes/'):
                     sid = path.removeprefix('/sandboxes/')
                     allowed = sid in (owner.deletable if method == 'DELETE' else owner.owned)
-                elif path == '/snapshots' and method == 'GET':
-                    allowed = query.get('sandboxID', [''])[0] in owner.owned
-                elif path.startswith('/templates/') and method == 'DELETE':
-                    allowed = path.removeprefix('/templates/') in owner.snapshots
                 event = {'method': method, 'path': path, 'time': time.monotonic()}
                 owner.events.append(event)
                 try:
@@ -158,7 +153,6 @@ class Suite:
         if snapshot:
             snap = sandbox.create_snapshot()
             self.snapshot_ids.append(snap.snapshot_id)
-            self.proxy.snapshots.add(snap.snapshot_id)
             self.save_manifest()
         if paused:
             self.check(sandbox.pause(), 'fixture pause succeeds')
@@ -218,9 +212,9 @@ class Suite:
         self.check(all(self.info(sid) is not None for sid in candidates), 'three-day policy preserves fresh fixtures')
         self.run('hours-age', ['--unused-for-hours', '1'])
         self.check(all(self.info(sid) is not None for sid in candidates), 'one-hour policy preserves fresh fixtures')
-        self.run('dry-run', ['--delete-snapshots', '--journal', str(self.folder / 'dry-run.json')], apply=False)
+        self.run('dry-run', apply=False)
         self.check(not any(e['method'] == 'DELETE' for e in self.proxy.events), 'dry run sends no DELETEs')
-        self.check(not list(self.folder.glob('*.json')), 'dry run creates no recovery journal')
+        self.check(not list(self.folder.glob('*.json')), 'dry run creates no local recovery state')
         self.proxy.events = []
         self.run('bounded', ['--limit', '2'])
         self.check(sum(self.info(sid) is None for sid in candidates) == 2, '--limit deletes exactly two matching fixtures')
@@ -328,12 +322,10 @@ class Suite:
         self.run('after-failure')
         self.check(self.info(sid) is None, 'next cron run deletes fixture after transient failures clear')
 
-    def snapshot_recovery(self):
-        self.select('snapshot-recovery')
+    def lost_delete_response(self):
+        self.select('lost-delete-response')
         sid = self.create(snapshot=True)
         snapshot = self.snapshot_ids[-1]
-        journal = self.folder / 'snapshots.json'
-        args = ['--delete-snapshots', '--journal', str(journal), '--retries', '0']
         lost = False
 
         def after(method, path, response):
@@ -344,13 +336,14 @@ class Suite:
             return None
 
         self.proxy.after = after
-        self.run('lost-delete-response', args, expected=1)
-        self.check(lost and self.info(sid) is None, 'real parent deletion succeeded despite injected lost response')
-        self.check(sid in json.loads(journal.read_text())['pending'], 'journal retains recoverable parent and snapshot IDs')
+        self.run('lost-delete-response', ['--retries', '0'], expected=1)
+        self.check(lost and self.info(sid) is None, 'real sandbox deletion succeeded despite injected lost response')
         self.proxy.after = lambda method, path, response: None
-        self.run('recover-snapshot', [*args, '--retry-pending'])
-        self.check(not json.loads(journal.read_text())['pending'], 'retry-pending completes and clears the journal')
-        self.check(not Sandbox.delete_snapshot(snapshot), 'named snapshot was deleted by recovery')
+        self.run('after-lost-response')
+        self.check(not any(event['path'].startswith('/templates/') for event in self.proxy.events),
+                   'lost-response retry never requests named-snapshot deletion')
+        self.check(any(item.snapshot_id == snapshot for item in Sandbox.list_snapshots(sandbox_id=sid).next_items()),
+                   'named snapshot survives a lost parent-delete response and rerun')
 
     def close(self):
         errors = []
@@ -393,7 +386,7 @@ def main():
         suite.resumed_during_retry()
         suite.overlap_and_interrupt()
         suite.auth_and_retries()
-        suite.snapshot_recovery()
+        suite.lost_delete_response()
         suite.report['result'] = 'passed'
     except BaseException as error:
         suite.report['result'] = 'failed'
