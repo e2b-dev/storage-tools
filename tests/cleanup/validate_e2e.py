@@ -141,7 +141,7 @@ def validate(script_name: str, script: list[str]) -> None:
         age_started_fresh = (now() - fresh_info.started_at).total_seconds()
         check(age_started_old - age_started_fresh > 20, "old ran at least 20s longer than fresh")
         threshold_s = (age_started_old + age_started_fresh) / 2
-        threshold_days = f"{threshold_s / 86400:.8f}"
+        threshold_hours = f"{threshold_s / 3600:.8f}"
         print(f"  threshold {threshold_s:.0f}s (old started {age_started_old:.0f}s ago, fresh {age_started_fresh:.0f}s ago)")
 
         print("\n-- dry run, nothing old enough")
@@ -161,12 +161,12 @@ def validate(script_name: str, script: list[str]) -> None:
         check("Dry run: 3" in proc.stdout, "dry-run summary reports 3")
 
         print("\n-- --age-from started: only the long-running one qualifies")
-        proc = run(script, "--unused-for-days", threshold_days, "--age-from", "started", "--metadata", metadata_arg)
+        proc = run(script, "--unused-for-hours", threshold_hours, "--age-from", "started", "--metadata", metadata_arg)
         check(proc.returncode == 0, "exit 0")
         check(matched_ids(proc.stdout) == {old.sandbox_id}, "only old matches")
 
         print("\n-- --age-from paused (default): both were paused seconds ago, none qualifies")
-        proc = run(script, "--unused-for-days", threshold_days, "--metadata", metadata_arg)
+        proc = run(script, "--unused-for-hours", threshold_hours, "--metadata", metadata_arg)
         check(proc.returncode == 0, "exit 0")
         check(matched_ids(proc.stdout) == set(), "no matches")
 

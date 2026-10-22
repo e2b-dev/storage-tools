@@ -115,7 +115,20 @@ class CleanupTests(unittest.TestCase):
         code, output = self.run_main("--unused-for-days", "-1", client=FakeClient())
 
         self.assertEqual(code, 2)
-        self.assertIn("--unused-for-days must be finite and at least 0", output)
+        self.assertIn("--unused-for-days must be at least 0", output)
+
+    def test_fractional_days_rejected_before_account_access(self) -> None:
+        self.write(row("snapshot", "t1"))
+        for value in ("0.5", "1.5", "3.0"):
+            client = FakeClient(snapshots={"t1": True})
+            code, _ = self.run_main("--unused-for-days", value, "--apply", client=client)
+            self.assertEqual(code, 2)
+            self.assertEqual(client.calls, [])
+        with mock.patch("builtins.input", return_value="0.5"):
+            client = FakeClient()
+            code, _ = self.run_main("--interactive", "--type", "snapshot", "--limit", "1", client=client)
+        self.assertEqual(code, 2)
+        self.assertEqual(client.calls, [])
 
     def test_dry_run_calls_nothing(self) -> None:
         client = FakeClient()

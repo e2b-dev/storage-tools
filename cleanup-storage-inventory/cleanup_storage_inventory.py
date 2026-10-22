@@ -287,8 +287,8 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     age = parser.add_mutually_exclusive_group()
     age.add_argument(
         "--unused-for-days",
-        type=float,
-        help="only rows whose last use (last_used_at) is more than N days ago",
+        type=int,
+        help="only rows whose last use (last_used_at) is more than N whole days ago",
     )
     age.add_argument(
         "--unused-for-hours",
@@ -323,7 +323,7 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
             for kind in answer.split():
                 argv += ["--type", kind]
         if args.unused_for_days is None and args.unused_for_hours is None:
-            answer = input("Only rows unused for more than N days [all]: ")
+            answer = input("Only rows unused for more than N whole days [all]: ")
             if answer:
                 argv += ["--unused-for-days", answer]
         if args.limit is None:
@@ -332,8 +332,8 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
                 argv += ["--limit", answer]
         args = parser.parse_args(argv)
 
-    if args.unused_for_days is not None and (not math.isfinite(args.unused_for_days) or args.unused_for_days < 0):
-        parser.error("--unused-for-days must be finite and at least 0")
+    if args.unused_for_days is not None and args.unused_for_days < 0:
+        parser.error("--unused-for-days must be at least 0")
     if args.unused_for_hours is not None:
         if not math.isfinite(args.unused_for_hours) or args.unused_for_hours < 0:
             parser.error("--unused-for-hours must be finite and at least 0")

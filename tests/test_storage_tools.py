@@ -37,6 +37,8 @@ class Commands(unittest.TestCase):
         for command in ['cleanup-storage-inventory', 'cleanup-paused-sandboxes']:
             extra = ['inventory.csv'] if command == 'cleanup-storage-inventory' else []
             for flag, value in [('--unused-for-days', '-1'), ('--unused-for-days', 'nan'),
+                                ('--unused-for-days', '0.5'), ('--unused-for-days', '1.5'),
+                                ('--unused-for-days', '3.0'),
                                 ('--unused-for-hours', '-1'), ('--unused-for-hours', 'nan'),
                                 ('--unused-for-hours', 'inf'),
                                 ('--rate', 'inf'), ('--rate', '0'), ('--limit', '0')]:

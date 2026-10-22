@@ -267,11 +267,14 @@ class CleanupSafety(unittest.TestCase):
         from cleanup_paused_sandboxes import parser_for_cli
         from cleanup_journal import Journal
         with patch.dict(os.environ, {"E2B_API_KEY": "offline-test-key"}):
-            for hours, days in [("36", "1.5"), ("2.4", "0.1")]:
-                journals = [Journal(None, dict(days=parser_for_cli().parse_args(flags).days,
-                                             age_from="paused", metadata={}), False)
-                            for flags in (["--unused-for-hours", hours], ["--unused-for-days", days],
-                                          ["--days", days])]
+            for hours, days in [("72", "3"), ("36", "1.5"), ("2.4", "0.1")]:
+                parsed = parser_for_cli().parse_args(["--unused-for-hours", hours])
+                journals = [Journal(None, dict(days=value, age_from="paused", metadata={}), False)
+                            for value in [parsed.days, float(days)]]
+                if float(days).is_integer():
+                    for flag in ["--unused-for-days", "--days"]:
+                        journals.append(Journal(None, dict(days=parser_for_cli().parse_args([flag, days]).days,
+                                                           age_from="paused", metadata={}), False))
                 self.assertEqual(journals[0].scope["days"], float(days))
                 self.assertEqual(len({j.path for j in journals}), 1)
         self.assertEqual(parser_for_cli().parse_args([]).days, 90)
@@ -392,7 +395,7 @@ class CleanupSafety(unittest.TestCase):
                   ["--delete-snapshots"], verify)
 
     def test_invalid_days_fail_before_account_access(self):
-        for value in ("-1", "nan", "inf", "garbage"):
+        for value in ("-1", "nan", "inf", "garbage", "0.5", "1.5", "3.0"):
             self.each(dict(sandboxes=[]), ["--days", value],
                       lambda b, p: (self.assertEqual(p.returncode, 2), self.assertFalse(b.calls)))
 

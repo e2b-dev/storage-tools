@@ -107,7 +107,7 @@ Monitor nonzero exits and rotate the log. An hourly job enforces retention on an
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `--unused-for-days N` | `90` | Select age strictly greater than N days. `--days` is a compatibility alias. |
+| `--unused-for-days N` | `90` | Select age strictly greater than N days; N must be a whole number. `--days` is a compatibility alias. |
 | `--unused-for-hours N` | — | Select age strictly greater than N hours. Use either hours or days. |
 | `--age-from paused\|started` | `paused` | Latest pause or latest start/resume timestamp. |
 | `--metadata k=v,k2=v2` | none | Match every supplied pair. |

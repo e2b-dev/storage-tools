@@ -24,7 +24,7 @@ def hours_as_days(value):
 def parser_for_cli():
     parser = argparse.ArgumentParser(description=__doc__)
     age = parser.add_mutually_exclusive_group()
-    age.add_argument('--unused-for-days', '--days', dest='days', type=nonnegative, default=90, help='select resources unused for more than N days (default 90; --days is a compatibility alias)')
+    age.add_argument('--unused-for-days', '--days', dest='days', type=int, default=90, help='select resources unused for more than N whole days (default 90; --days is a compatibility alias)')
     age.add_argument('--unused-for-hours', dest='days', type=hours_as_days, metavar='N', help='select resources unused for more than N hours')
     parser.add_argument('--metadata', type=metadata_arg, help='key=value,key2=value2')
     parser.add_argument('--age-from', choices=['paused','started'], default='paused')
@@ -269,6 +269,8 @@ def run(args, api, cutoff):
 def main(argv=None):
     parser = parser_for_cli()
     args = parser.parse_args(argv)
+    if not 0 <= args.days <= 365000:
+        parser.error('--unused-for-days must be between 0 and 365000')
     if args.retry_pending and not args.delete_snapshots:
         parser.error('--retry-pending requires --delete-snapshots')
     if not 1 <= args.page_size <= 100:
