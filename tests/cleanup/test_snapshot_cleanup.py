@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import threading
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -38,14 +39,10 @@ class Account:
         self.members = set(self.records)
         self.calls = []
         self.clock = 100.0
-        self.sleeps = []
-        self.sleep_hook = lambda delay: None
         self.hook = lambda request: None
         self.counts = {}
 
     def sleep(self, delay):
-        self.sleeps.append(delay)
-        self.sleep_hook(delay)
         self.clock += delay
 
     def handler(self, request):
@@ -85,15 +82,15 @@ class Account:
 
 
 class SnapshotCleanup(unittest.TestCase):
-    def run_case(self, account, *flags, apply=True):
+    def run_case(self, account, *flags, apply=True, age=None):
         with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, E2B_API_KEY='snapshot-test-key',
                                                                E2B_API_URL='https://test', E2B_DEBUG='false'):
             client = httpx.Client(base_url='https://test', transport=httpx.MockTransport(account.handler))
             api = SnapshotBackend(client=client)
             api.control = RequestControl(20, retries=1, clock=lambda: account.clock, sleep=account.sleep)
-            account.control = api.control
             out, err = io.StringIO(), io.StringIO()
-            argv = ['--unused-for-days', '90', '--concurrency', '1', '--lock-file', str(Path(folder) / 'run.lock'), *flags]
+            argv = [*(age if age is not None else ['--unused-for-days', '90']),
+                    '--concurrency', '1', '--lock-file', str(Path(folder) / 'run.lock'), *flags]
             if apply:
                 argv.append('--apply')
             with patch.object(cleanup, 'backend', return_value=api), patch.object(cleanup, 'datetime') as clock, \
@@ -104,6 +101,22 @@ class SnapshotCleanup(unittest.TestCase):
 
     def deletes(self, account):
         return [(method, path) for method, path, _, _ in account.calls if method == 'DELETE']
+
+    def test_retention_buffer_is_added_to_days_hours_and_default_without_waiting(self):
+        for age, days in ((['--unused-for-days', '1'], 1), (['--unused-for-hours', '24'], 1), ([], 90)):
+            for apply in (False, True):
+                with self.subTest(age=age, apply=apply):
+                    account = Account(4)
+                    for index, extra_seconds in enumerate((0, 60, 120, 121), 1):
+                        account.records[f'raw{index}']['lastSpawnedAt'] = (
+                            NOW - timedelta(days=days, seconds=extra_seconds)).isoformat()
+                    result = self.run_case(account, apply=apply, age=age)
+                    self.assertEqual(result.code, 0, result.err)
+                    selected = {line.split('\t')[0] for line in result.out.splitlines() if '\tlast_used=' in line}
+                    self.assertEqual(selected, {'raw4'})
+                    self.assertEqual(self.deletes(account), [('DELETE', '/templates/raw4')] if apply else [])
+                    self.assertLess(account.clock - 100, 10, 'only request pacing may advance the clock')
+                    self.assertEqual(account.counts[('GET', '/templates/raw4')], 2 if apply else 1)
 
     def test_dry_run_uses_snapshot_usage_not_old_parent_and_skips_never_used(self):
         account = Account(3)
@@ -137,89 +150,6 @@ class SnapshotCleanup(unittest.TestCase):
         self.assertEqual(result.code, 0, result.err)
         self.assertIn(f'raw1\tlast_used={OLD.isoformat()}\tretention_at={latest_update.isoformat()}', result.out)
         self.assertEqual(self.deletes(account), [])
-
-    def test_apply_waits_120_seconds_after_last_candidate_observation_then_rechecks(self):
-        account = Account(3)
-        result = self.run_case(account)
-        self.assertEqual(result.code, 0, result.err)
-        initial = {}
-        for method, path, when, _ in account.calls:
-            if method == 'GET' and path in ('/templates/raw1', '/templates/raw2', '/templates/raw3'):
-                initial.setdefault(path, when)
-        ready_at = max(initial.values()) + 120
-        for method, path, when, params in account.calls:
-            if method == 'DELETE' or (path == '/snapshots' and params.get('name')):
-                self.assertGreaterEqual(when, ready_at)
-        self.assertEqual(len(self.deletes(account)), 3)
-        self.assertTrue(all(account.counts[('GET', path)] == 2 for path in initial))
-
-    def test_usage_becoming_visible_during_hold_preserves_snapshot(self):
-        account = Account()
-        def publish_usage(delay):
-            if delay >= 120:
-                account.records['raw1']['lastSpawnedAt'] = NOW.isoformat()
-                account.records['raw1']['spawnCount'] += 1
-        account.sleep_hook = publish_usage
-        result = self.run_case(account)
-        self.assertEqual(result.code, 0, result.err)
-        self.assertEqual(self.deletes(account), [])
-        self.assertIn('state changed', result.out)
-
-    def test_cancelled_hold_stops_without_any_delete(self):
-        account = Account()
-        def cancel_hold(delay):
-            if delay >= 120:
-                account.control.cancelled.set()
-        account.sleep_hook = cancel_hold
-        result = self.run_case(account)
-        self.assertEqual(result.code, 1, result.err)
-        self.assertIn('cleanup stopped', result.err)
-        self.assertEqual(self.deletes(account), [])
-        self.assertIn('raw1', account.records)
-
-    def test_interrupt_during_hold_cancels_without_any_delete(self):
-        account = Account()
-        def interrupt_hold(delay):
-            if delay >= 120:
-                raise KeyboardInterrupt
-        account.sleep_hook = interrupt_hold
-        with self.assertRaises(KeyboardInterrupt):
-            self.run_case(account)
-        self.assertTrue(account.control.cancelled.is_set())
-        self.assertEqual(self.deletes(account), [])
-
-    def test_early_wakeup_does_not_shorten_monotonic_hold(self):
-        account = Account()
-        sleep = account.sleep
-        def wake_early(delay):
-            if delay >= 60:
-                account.sleeps.append(delay)
-                account.clock += 60
-            else:
-                sleep(delay)
-        account.sleep = wake_early
-        result = self.run_case(account)
-        self.assertEqual(result.code, 0, result.err)
-        observed = next(when for method, path, when, _ in account.calls
-                        if method == 'GET' and path == '/templates/raw1')
-        deleted = next(when for method, _, when, _ in account.calls if method == 'DELETE')
-        self.assertGreaterEqual(deleted - observed, 120)
-        self.assertEqual([delay for delay in account.sleeps if delay >= 60], [120, 60])
-
-    def test_dry_run_has_no_observation_hold(self):
-        account = Account(25)
-        result = self.run_case(account, apply=False)
-        self.assertEqual(result.code, 0, result.err)
-        self.assertTrue(all(delay < 1 for delay in account.sleeps))
-        self.assertEqual(self.deletes(account), [])
-        self.assertIn('25 snapshot(s) matched', result.out)
-
-    def test_unchanged_batch_waits_once_across_multiple_worker_groups(self):
-        account = Account(25)
-        result = self.run_case(account, '--concurrency', '3')
-        self.assertEqual(result.code, 0, result.err)
-        self.assertEqual(len(self.deletes(account)), 25)
-        self.assertEqual([delay for delay in account.sleeps if delay >= 120], [120])
 
     def test_unknown_or_in_progress_latest_build_is_preserved(self):
         for status in (None, 'building', 'waiting', 'future-status'):
@@ -415,25 +345,17 @@ class SnapshotCleanup(unittest.TestCase):
         self.assertTrue(result.api.control.cancelled.is_set())
         self.assertEqual(self.deletes(account), [])
 
-    def test_candidate_batches_and_limit_bound_large_discovery(self):
+    def test_worker_queue_and_limit_bound_large_discovery(self):
+        gate = threading.Event()
+
         class LargeAPI:
             invalid_rows = generated = deleted = 0
-
-            def __init__(self):
-                self.clock = 0
-                self.holds = []
-                self.deleted_at = []
-                self.control = RequestControl(clock=lambda: self.clock, sleep=self.sleep)
-
-            def sleep(self, delay):
-                self.holds.append(delay)
-                self.clock += delay
 
             def list_snapshot_refs(self, name=None):
                 for i in range(1_000_000):
                     self.generated += 1
-                    if self.generated - self.deleted > 1000:
-                        raise AssertionError('discovery exceeded the bounded candidate batch')
+                    if self.generated == 5 and not gate.is_set():
+                        raise AssertionError('discovery exceeded the bounded worker queue')
                     yield f'raw{i}'
 
             def resolve_snapshot(self, reference):
@@ -447,20 +369,18 @@ class SnapshotCleanup(unittest.TestCase):
 
             def delete_snapshot(self, raw, before_retry):
                 self.deleted += 1
-                self.deleted_at.append(self.clock)
+                gate.set()
                 return True
 
             def cancel(self):
-                self.control.cancelled.set()
+                pass
 
         api = LargeAPI()
-        args = cleanup.parser_for_cli().parse_args(['--apply', '--limit', '1008', '--concurrency', '4'])
+        args = cleanup.parser_for_cli().parse_args(['--apply', '--limit', '8', '--concurrency', '4'])
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             code = cleanup.run(args, api, NOW - timedelta(days=90))
         self.assertEqual(code, 0)
-        self.assertEqual((api.generated, api.deleted), (1008, 1008))
-        self.assertEqual(api.holds, [120, 120])
-        self.assertEqual(api.deleted_at, [120] * 1000 + [240] * 8)
+        self.assertEqual((api.generated, api.deleted), (8, 8))
 
 
 if __name__ == '__main__':

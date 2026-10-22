@@ -22,9 +22,9 @@ Snapshots with unknown last use are skipped; null is not treated as proof that a
 never used. Recent creation, updates, or builds also preserve a snapshot until they pass the
 cutoff. A changed usage count, timestamp, or build identity cancels a pending deletion.
 
-Apply runs hold each candidate for at least two minutes before rechecking it and deleting.
-Candidates wait in batches of up to 1,000; dry runs do not wait. This allows normally buffered
-usage updates to arrive without adding two minutes per deletion.
+A fixed two-minute buffer is added to the requested retention age in both dry runs and apply
+runs. `--unused-for-hours 24` selects snapshots unused for more than 24 hours and 2 minutes.
+The buffer changes the cutoff; it adds no waiting or API requests.
 
 Output separates `last_used` (the API's `lastSpawnedAt`) from `retention_at` (the latest use,
 creation, update, or build timestamp used for selection).
@@ -59,8 +59,8 @@ are already gone. In-use resources are preserved and cause a nonzero exit. Later
 remaining work; completed deletes stand after interruption.
 
 **Usage is best-effort, not an atomic inactivity check.** Updates normally flush about once a
-minute. The two-minute hold lets earlier updates arrive; it does not recover lost updates or
-cover longer delays. New use during the hold may still be unreported at the final recheck.
+minute. The two-minute age buffer adds margin at the retention boundary; it does not recover
+lost updates or establish that recent reuse has been reported.
 Usage or a new capture can also occur between the last check and
 DELETE. Coordinate snapshot creation, recapture, and derived-sandbox resumes with cleanup when
 that race is unacceptable. Building a template from a snapshot is not covered by this usage
