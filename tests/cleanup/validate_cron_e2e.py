@@ -19,6 +19,7 @@ import httpx
 from e2b import Sandbox, NotFoundException
 
 ROOT = Path(__file__).resolve().parents[2]
+PROXY_TOKEN = 'local-cron-fixture-token'
 
 
 class GuardedAPI:
@@ -60,13 +61,16 @@ class GuardedAPI:
                 event = {'method': method, 'path': path, 'time': time.monotonic()}
                 owner.events.append(event)
                 try:
-                    if not allowed:
+                    if (not allowed or parsed.scheme or parsed.netloc or parsed.fragment
+                            or self.headers.get('X-API-Key') != PROXY_TOKEN):
                         owner.rejected.append(event)
                         result = (403, b'fixture guard rejected request', {})
                     else:
                         result = owner.before(method, path)
                         if result is None:
-                            response = owner.client.request(method, self.path)
+                            url = owner.client.base_url.copy_with(
+                                path=path, query=parsed.query.encode('ascii'))
+                            response = owner.client.request(method, url)
                             result = owner.after(method, path, response)
                             if result is None:
                                 result = (response.status_code, response.content,
@@ -120,7 +124,8 @@ class Suite:
         self.proxy = GuardedAPI(key, endpoint)
         self.env_file = self.folder / 'cleanup.env'
         self.env_file.touch(mode=0o600)
-        self.env_file.write_text(f'E2B_API_KEY={shlex.quote(key)}\nE2B_API_URL={self.proxy.url}\n')
+        # Only the proxy holds the real key; the wrapper loads a test token.
+        self.env_file.write_text(f'E2B_API_KEY={PROXY_TOKEN}\nE2B_API_URL={self.proxy.url}\n')
         self.created = []
         self.snapshot_ids = []
         self.processes = []
