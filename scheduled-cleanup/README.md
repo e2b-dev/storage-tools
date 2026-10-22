@@ -83,8 +83,13 @@ source /opt/storage-tools/cleanup.env
 set +a
 exec /opt/storage-tools/.venv/bin/python \
   /opt/storage-tools/storage_tools.py cleanup-paused-sandboxes \
-  --unused-for-days 3 --apply --recheck --rate 15
+  --unused-for-days "<RETENTION_DAYS>" --apply --recheck \
+  --rate "<REQUESTS_PER_SECOND>"
 ```
+
+Replace the placeholders with your retention period and request rate. Without `--metadata`,
+the job selects across the whole team. To narrow it, add `--metadata "<KEY>=<VALUE>"`
+with your workload's metadata.
 
 `--recheck` re-reads each sandbox before the first delete attempt and again after backoff
 before each retry. It skips a sandbox that no longer matches. Each check uses one GET.
