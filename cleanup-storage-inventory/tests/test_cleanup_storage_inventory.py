@@ -2,6 +2,7 @@ import contextlib
 import csv
 import io
 import tempfile
+import sys
 import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -16,6 +17,7 @@ from e2b import (
     SandboxState,
 )
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cleanup_storage_inventory as cleanup
 
 HEADER = "as_of_date,resource_type,resource_id,size_gib,last_used_at\n"
@@ -115,6 +117,19 @@ class CleanupTests(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("--unused-for-days must be at least 0", output)
 
+    def test_fractional_days_rejected_before_account_access(self) -> None:
+        self.write(row("snapshot", "t1"))
+        for value in ("0.5", "1.5", "3.0"):
+            client = FakeClient(snapshots={"t1": True})
+            code, _ = self.run_main("--unused-for-days", value, "--apply", client=client)
+            self.assertEqual(code, 2)
+            self.assertEqual(client.calls, [])
+        with mock.patch("builtins.input", return_value="0.5"):
+            client = FakeClient()
+            code, _ = self.run_main("--interactive", "--type", "snapshot", "--limit", "1", client=client)
+        self.assertEqual(code, 2)
+        self.assertEqual(client.calls, [])
+
     def test_dry_run_calls_nothing(self) -> None:
         client = FakeClient()
         self.write(
@@ -151,6 +166,20 @@ class CleanupTests(unittest.TestCase):
 
         self.assertEqual(code, 0)
         self.assertEqual(self.outcomes(), {"old": "deleted"})
+
+    def test_hours_filter_and_interactive_does_not_prompt_for_days(self) -> None:
+        self.assertEqual(cleanup.parse_args([str(self.inventory), "--unused-for-hours", "2.4"]).unused_for_days, 0.1)
+        now = datetime.now(UTC)
+        client = FakeClient(snapshots={"old": True, "recent": True})
+        self.write(row("snapshot", "old", now - timedelta(minutes=90)),
+                   row("snapshot", "recent", now - timedelta(minutes=30)))
+        with mock.patch("builtins.input", side_effect=["y"]) as prompt:
+            code, output = self.run_main("--unused-for-hours", "1", "--type", "snapshot",
+                                         "--limit", "10", "--interactive", "--apply", client=client)
+        self.assertEqual(code, 0, output)
+        self.assertEqual(prompt.call_count, 1)
+        self.assertEqual(self.outcomes(), {"old": "deleted"})
+        self.assertEqual(client.calls, [("delete_snapshot", "old")])
 
     def test_maps_each_case_to_an_outcome_and_kills_before_deleting_snapshots(
         self,
@@ -255,7 +284,7 @@ class CleanupTests(unittest.TestCase):
             {"limited": "deleted", "broken": "failed", "fine": "deleted"},
         )
         self.assertIn("requeued 2", output)
-        self.assertIn("A lower --rate (currently 100) avoids that", output)
+        self.assertIn("A lower --rate (currently 20) avoids that", output)
 
     def test_limit_takes_paused_sandboxes_first_and_a_rerun_continues(self) -> None:
         client = FakeClient(

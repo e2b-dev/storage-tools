@@ -12,8 +12,10 @@
 """
 
 import argparse
+from decimal import Decimal
 import asyncio
 import csv
+import math
 import os
 import sys
 import time
@@ -282,10 +284,16 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     )
     parser.add_argument("inventory", type=Path)
     parser.add_argument("--type", dest="types", action="append", choices=TYPES)
-    parser.add_argument(
+    age = parser.add_mutually_exclusive_group()
+    age.add_argument(
         "--unused-for-days",
+        type=int,
+        help="only rows whose last use (last_used_at) is more than N whole days ago",
+    )
+    age.add_argument(
+        "--unused-for-hours",
         type=float,
-        help="only rows whose last use (last_used_at) is at least N days ago",
+        help="only rows whose last use (last_used_at) is more than N hours ago",
     )
     parser.add_argument("--limit", type=int, help="delete at most N rows in this run")
     parser.add_argument(
@@ -295,7 +303,7 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
         help="rows in progress at once, default 10",
     )
     parser.add_argument(
-        "--rate", type=float, default=100, help="API requests per second, default 100"
+        "--rate", type=float, default=20, help="API requests per second, default 20"
     )
     parser.add_argument(
         "--apply", action="store_true", help="permanently delete the selected rows"
@@ -314,8 +322,8 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
             answer = input("Types to delete (paused_sandbox snapshot) [both]: ")
             for kind in answer.split():
                 argv += ["--type", kind]
-        if args.unused_for_days is None:
-            answer = input("Only rows unused for N days or more [all]: ")
+        if args.unused_for_days is None and args.unused_for_hours is None:
+            answer = input("Only rows unused for more than N whole days [all]: ")
             if answer:
                 argv += ["--unused-for-days", answer]
         if args.limit is None:
@@ -326,12 +334,16 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
 
     if args.unused_for_days is not None and args.unused_for_days < 0:
         parser.error("--unused-for-days must be at least 0")
+    if args.unused_for_hours is not None:
+        if not math.isfinite(args.unused_for_hours) or args.unused_for_hours < 0:
+            parser.error("--unused-for-hours must be finite and at least 0")
+        args.unused_for_days = float(Decimal(str(args.unused_for_hours)) / 24)
     if args.limit is not None and args.limit < 1:
         parser.error("--limit must be at least 1")
     if args.concurrency < 1:
         parser.error("--concurrency must be at least 1")
-    if args.rate <= 0:
-        parser.error("--rate must be more than 0")
+    if not math.isfinite(args.rate) or args.rate <= 0:
+        parser.error("--rate must be finite and more than 0")
     return args
 
 
