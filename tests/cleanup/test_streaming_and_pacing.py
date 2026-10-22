@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 import httpx
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'cleanup'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scheduled-cleanup'))
 import cleanup_paused_sandboxes as cleanup
 from cleanup_journal import run_lock
 from request_control import AuthorizationError, BackendError, Missing, RequestControl, retry_after

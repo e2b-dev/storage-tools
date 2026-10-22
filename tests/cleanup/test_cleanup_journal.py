@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'cleanup'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scheduled-cleanup'))
 from cleanup_journal import run_lock
 import cleanup_paused_sandboxes as cleanup
 

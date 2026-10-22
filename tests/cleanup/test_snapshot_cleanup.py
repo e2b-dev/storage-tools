@@ -15,8 +15,9 @@ from urllib.parse import quote
 
 import httpx
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'cleanup'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scheduled-cleanup'))
 import cleanup_unused_snapshots as cleanup
+import cleanup_paused_sandboxes as paused_cleanup
 from cleanup_journal import run_lock
 from request_control import RequestControl
 from snapshot_backend import SnapshotBackend, snapshot_state
@@ -102,8 +103,8 @@ class SnapshotCleanup(unittest.TestCase):
     def deletes(self, account):
         return [(method, path) for method, path, _, _ in account.calls if method == 'DELETE']
 
-    def test_retention_buffer_is_added_to_days_hours_and_default_without_waiting(self):
-        for age, days in ((['--unused-for-days', '1'], 1), (['--unused-for-hours', '24'], 1), ([], 90)):
+    def test_retention_buffer_is_added_to_days_and_hours_without_waiting(self):
+        for age, days in ((['--unused-for-days', '1'], 1), (['--unused-for-hours', '24'], 1)):
             for apply in (False, True):
                 with self.subTest(age=age, apply=apply):
                     account = Account(4)
@@ -313,6 +314,20 @@ class SnapshotCleanup(unittest.TestCase):
         self.assertEqual(result.code, 0, result.err)
         self.assertIn(('/templates/aliases/' + quote(account.refs[0], safe='')).encode(), raw_paths)
 
+    def test_missing_retention_fails_before_constructing_backend(self):
+        for module in (cleanup, paused_cleanup):
+            for flags in ([], ['--apply']):
+                with self.subTest(command=module.__name__, flags=flags), \
+                        patch.object(module, 'backend') as backend:
+                    error = io.StringIO()
+                    with contextlib.redirect_stderr(error), self.assertRaises(SystemExit) as raised:
+                        module.main(flags)
+                    self.assertEqual(raised.exception.code, 2)
+                    self.assertIn('required', error.getvalue())
+                    self.assertIn('--unused-for-days', error.getvalue())
+                    self.assertIn('--unused-for-hours', error.getvalue())
+                    backend.assert_not_called()
+
     def test_invalid_options_fail_before_constructing_backend(self):
         for args in (['--metadata', 'env=test'], ['--metadata'], ['--unused-for-days', '0.5'],
                      ['--unused-for-hours', 'nan'], ['--unused-for-days', '1', '--unused-for-hours', '2'],
@@ -320,10 +335,11 @@ class SnapshotCleanup(unittest.TestCase):
                      ['--retries', '-1'], ['--name', '']):
             with self.subTest(args=args), patch.object(cleanup, 'backend', side_effect=AssertionError('API access')):
                 with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:
-                    cleanup.main(args)
+                    age = [] if any(a.startswith('--unused-for-') for a in args) else ['--unused-for-days', '90']
+                    cleanup.main([*age, *args])
                 self.assertEqual(raised.exception.code, 2)
         parser = cleanup.parser_for_cli()
-        self.assertEqual(parser.parse_args([]).days, 90)
+        self.assertEqual(parser.parse_args(['--unused-for-days', '90']).days, 90)
         self.assertEqual(parser.parse_args(['--unused-for-hours', '36']).days, 1.5)
 
     def test_shared_lock_rejects_overlap_before_requests(self):
@@ -333,7 +349,7 @@ class SnapshotCleanup(unittest.TestCase):
             with httpx.Client(base_url='https://test', transport=httpx.MockTransport(account.handler)) as client:
                 api = SnapshotBackend(client=client)
                 with run_lock(path), patch.object(cleanup, 'backend', return_value=api), contextlib.redirect_stderr(io.StringIO()):
-                    self.assertEqual(cleanup.main(['--apply', '--lock-file', path]), 1)
+                    self.assertEqual(cleanup.main(['--unused-for-days', '90', '--apply', '--lock-file', path]), 1)
             self.assertEqual(account.calls, [])
 
     def test_authentication_failure_stops_listing_before_any_other_request(self):
@@ -376,7 +392,7 @@ class SnapshotCleanup(unittest.TestCase):
                 pass
 
         api = LargeAPI()
-        args = cleanup.parser_for_cli().parse_args(['--apply', '--limit', '8', '--concurrency', '4'])
+        args = cleanup.parser_for_cli().parse_args(['--unused-for-days', '90', '--apply', '--limit', '8', '--concurrency', '4'])
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             code = cleanup.run(args, api, NOW - timedelta(days=90))
         self.assertEqual(code, 0)

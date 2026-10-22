@@ -2,6 +2,7 @@
 
 Delete currently paused sandboxes by time since their latest pause or latest start/resume.
 The script streams ascending API pages and starts deleting before the full inventory is read.
+Supply either `--unused-for-days` (whole days) or `--unused-for-hours`; there is no default retention period.
 The default is a dry run. `--apply` deletes immediately and permanently without prompts.
 
 Both `cleanup_paused_sandboxes.py` and `cleanup_paused_sandboxes_cli.sh` use the same HTTP client.
@@ -12,7 +13,7 @@ Both read `E2B_API_KEY`, optional `E2B_DOMAIN`, and optional `E2B_API_URL` from 
 
 ## Setup and run
 
-From the repository root (or a package root containing `cleanup/`, `requirements.txt`, and
+From the repository root (or a package root containing `scheduled-cleanup/`, `requirements.txt`, and
 `LICENSE`), install Python 3.11 or newer and the dependencies:
 
 ```bash
@@ -21,13 +22,13 @@ python3 -m venv .venv
 export E2B_API_KEY=your_key
 
 # Preview sandboxes that have been paused (unused) for more than 72 hours.
-.venv/bin/python cleanup/cleanup_paused_sandboxes.py --unused-for-days 3
+.venv/bin/python scheduled-cleanup/cleanup_paused_sandboxes.py --unused-for-days 3
 
 # Delete directly; no prior dry run is required.
-.venv/bin/python cleanup/cleanup_paused_sandboxes.py --unused-for-days 3 --apply
+.venv/bin/python scheduled-cleanup/cleanup_paused_sandboxes.py --unused-for-days 3 --apply
 
 # Same operation through the shell entry point, limited to one workload.
-bash cleanup/cleanup_paused_sandboxes_cli.sh --unused-for-days 3 --metadata env=dev --apply
+bash scheduled-cleanup/cleanup_paused_sandboxes_cli.sh --unused-for-days 3 --metadata env=dev --apply
 ```
 
 The default, `--age-from paused`, measures time since the sandbox was last paused, which is the
@@ -69,7 +70,7 @@ exits nonzero so the skip is visible to cron monitoring.
 
 The cron example uses a full repository installation and its unified `storage_tools.py` command.
 For a standalone cleanup package, replace that command with the absolute path to
-`cleanup/cleanup_paused_sandboxes.py`.
+`scheduled-cleanup/cleanup_paused_sandboxes.py`.
 
 An hourly job processes all qualifying sandboxes at the configured request rate. Save a wrapper at
 `/opt/storage-tools/cleanup-cron.sh`, adapting paths and region settings to your installation:
@@ -82,8 +83,13 @@ source /opt/storage-tools/cleanup.env
 set +a
 exec /opt/storage-tools/.venv/bin/python \
   /opt/storage-tools/storage_tools.py cleanup-paused-sandboxes \
-  --unused-for-days 3 --apply --recheck --rate 15
+  --unused-for-days "<RETENTION_DAYS>" --apply --recheck \
+  --rate "<REQUESTS_PER_SECOND>"
 ```
+
+Replace the placeholders with your retention period and request rate. Without `--metadata`,
+the job selects across the whole team. To narrow it, add `--metadata "<KEY>=<VALUE>"`
+with your workload's metadata.
 
 `--recheck` re-reads each sandbox before the first delete attempt and again after backoff
 before each retry. It skips a sandbox that no longer matches. Each check uses one GET.

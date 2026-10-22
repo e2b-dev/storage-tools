@@ -16,7 +16,7 @@ from unittest.mock import patch
 from e2b import Sandbox
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / 'cleanup'))
+sys.path.insert(0, str(ROOT / 'scheduled-cleanup'))
 import cleanup_paused_sandboxes as cleanup
 from request_control import RequestControl
 from sandbox_backend import APIBackend

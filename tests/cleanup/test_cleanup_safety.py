@@ -23,7 +23,7 @@ from unittest.mock import patch
 from datetime import datetime, timedelta, timezone
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "cleanup"))
+sys.path.insert(0, str(ROOT / "scheduled-cleanup"))
 
 
 def sandbox(sid, paused_days=100, started_days=120, state="paused"):
@@ -119,7 +119,7 @@ def run_python(backend, args):
             patch.object(sys, 'argv', ['cleanup'] + args), \
             contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
         try:
-            runpy.run_path(str(ROOT / 'cleanup' / 'cleanup_paused_sandboxes.py'), run_name='__main__')
+            runpy.run_path(str(ROOT / 'scheduled-cleanup' / 'cleanup_paused_sandboxes.py'), run_name='__main__')
         except SystemExit as error:
             rc = error.code
     return SimpleNamespace(returncode=rc, stdout=stdout.getvalue(), stderr=stderr.getvalue())
@@ -189,7 +189,7 @@ def run_shell(backend, args):
         env = {k: v for k, v in os.environ.items() if not k.startswith('E2B_')}
         env.update(E2B_API_KEY='offline-test-key', E2B_API_URL=f'http://127.0.0.1:{server.server_port}',
                    E2B_TOOLS_PYTHON=sys.executable)
-        return subprocess.run(['bash', str(ROOT / 'cleanup' / 'cleanup_paused_sandboxes_cli.sh'),
+        return subprocess.run(['bash', str(ROOT / 'scheduled-cleanup' / 'cleanup_paused_sandboxes_cli.sh'),
                                *args, '--rate', '10000', '--retries', '0'],
                               capture_output=True, text=True, env=env, timeout=30)
     finally:
@@ -200,6 +200,8 @@ def run_shell(backend, args):
 
 def test_args(backend, args):
     args = list(args)
+    if not any(flag in args for flag in ('--unused-for-days', '--unused-for-hours', '--days')):
+        args += ['--unused-for-days', '90']
     if not hasattr(backend, "work_temp"):
         backend.work_temp = tempfile.TemporaryDirectory()
     args += ["--lock-file", str(Path(backend.work_temp.name) / "run.lock")]
@@ -244,7 +246,7 @@ class CleanupSafety(unittest.TestCase):
             self.assertEqual(parser.parse_args(['--unused-for-hours', hours]).days, days)
         self.assertEqual(parser.parse_args(['--unused-for-days', '3']).days,
                          parser.parse_args(['--days', '3']).days)
-        self.assertEqual(parser.parse_args([]).days, 90)
+        self.assertEqual(parser.parse_args(['--unused-for-days', '90']).days, 90)
 
     def test_apply_deletes_sandbox_and_preserves_named_snapshots(self):
         def verify(b, p):
