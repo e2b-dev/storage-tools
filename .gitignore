@@ -218,3 +218,16 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+*.zip
+events*.json
+*.csv
+.cleanup-journal-*.json
+.cleanup-journal-*.lock
+verification/
+docs/VERIFICATION.md
+.env
+.env.*

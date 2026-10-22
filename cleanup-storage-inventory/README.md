@@ -16,6 +16,12 @@ uv run cleanup_storage_inventory.py inventory.csv --apply --interactive --limit 
 uv run cleanup_storage_inventory.py --help                              # all flags
 ```
 
+From the repository root, the same command is available as
+`uv run storage_tools.py cleanup-storage-inventory inventory.csv`. Both cleanup commands use
+`--unused-for-days`, `--apply`, `--rate` (default 20), `--concurrency` (default 10), and `--limit`.
+For scheduled cleanup from the live API and read-only lifecycle analysis, see the
+[storage tools overview](../README.md) and [storage management guide](https://docs.e2b.dev/sandbox/storage-management).
+
 ## Tests
 
 ```bash

@@ -2,6 +2,7 @@ import contextlib
 import csv
 import io
 import tempfile
+import sys
 import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -16,6 +17,7 @@ from e2b import (
     SandboxState,
 )
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cleanup_storage_inventory as cleanup
 
 HEADER = "as_of_date,resource_type,resource_id,size_gib,last_used_at\n"
@@ -113,7 +115,7 @@ class CleanupTests(unittest.TestCase):
         code, output = self.run_main("--unused-for-days", "-1", client=FakeClient())
 
         self.assertEqual(code, 2)
-        self.assertIn("--unused-for-days must be at least 0", output)
+        self.assertIn("--unused-for-days must be finite and at least 0", output)
 
     def test_dry_run_calls_nothing(self) -> None:
         client = FakeClient()
@@ -255,7 +257,7 @@ class CleanupTests(unittest.TestCase):
             {"limited": "deleted", "broken": "failed", "fine": "deleted"},
         )
         self.assertIn("requeued 2", output)
-        self.assertIn("A lower --rate (currently 100) avoids that", output)
+        self.assertIn("A lower --rate (currently 20) avoids that", output)
 
     def test_limit_takes_paused_sandboxes_first_and_a_rerun_continues(self) -> None:
         client = FakeClient(
