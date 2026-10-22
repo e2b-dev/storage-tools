@@ -4,7 +4,7 @@ Clean up paused sandboxes and unused snapshots, process a downloaded inventory, 
 sandbox reuse before choosing a retention period.
 Cleanup commands preview by default and require `--apply` for permanent deletion.
 
-**[Storage management guide](https://docs.e2b.dev/sandbox/storage-management)**
+**[Bulk cleanup guide](https://docs.e2b.dev/sandbox/cleanup-storage-inventory)** · **[Scheduled cleanup guide](https://docs.e2b.dev/sandbox/storage-management)**
 
 ## Install
 

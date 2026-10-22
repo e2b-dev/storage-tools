@@ -8,7 +8,7 @@ Both `cleanup_paused_sandboxes.py` and `cleanup_paused_sandboxes_cli.sh` use the
 The shell entry point needs Python and the repository dependencies, but does not need the E2B CLI.
 Both read `E2B_API_KEY`, optional `E2B_DOMAIN`, and optional `E2B_API_URL` from the environment.
 
-**[All storage tools](../README.md)** · **[Storage management guide](https://docs.e2b.dev/sandbox/storage-management)**
+**[All storage tools](../README.md)** · **[Scheduled cleanup guide](https://docs.e2b.dev/sandbox/storage-management)**
 
 ## Setup and run
 
@@ -71,7 +71,7 @@ The cron example uses a full repository installation and its unified `storage_to
 For a standalone cleanup package, replace that command with the absolute path to
 `cleanup/cleanup_paused_sandboxes.py`.
 
-An hourly job can delete up to 10,000 qualifying sandboxes per invocation. Save a wrapper at
+An hourly job processes all qualifying sandboxes at the configured request rate. Save a wrapper at
 `/opt/storage-tools/cleanup-cron.sh`, adapting paths and region settings to your installation:
 
 ```bash
@@ -82,7 +82,7 @@ source /opt/storage-tools/cleanup.env
 set +a
 exec /opt/storage-tools/.venv/bin/python \
   /opt/storage-tools/storage_tools.py cleanup-paused-sandboxes \
-  --unused-for-days 3 --apply --recheck --rate 15 --limit 10000
+  --unused-for-days 3 --apply --recheck --rate 15
 ```
 
 `--recheck` re-reads each sandbox before the first delete attempt and again after backoff
